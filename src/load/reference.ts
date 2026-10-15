@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { withTransaction, type Pool } from "../db.ts";
+import { categoryGroupPostgresSql } from "../places/categories.ts";
 
 const sql = (name: string) => readFile(new URL(`./sql/${name}`, import.meta.url), "utf8");
 
@@ -10,11 +11,13 @@ export interface Release {
   bbox: BBox | null;
 }
 
-export const REFERENCE_TABLES = ["places", "divisions", "areas", "addresses"] as const;
+export const REFERENCE_TABLES = ["places", "place_names", "divisions", "areas", "addresses", "streets"] as const;
 
-// Recreates schema ref_next with empty staging tables.
+// Recreates schema ref_next with empty staging tables, and the function that sorts
+// OpenStreetMap categories into groups (the same rules the DuckDB extraction uses).
 export async function prepareStaging(pool: Pool): Promise<void> {
   await pool.query(await sql("stage.sql"));
+  await pool.query(categoryGroupPostgresSql("ref_next"));
 }
 
 // Builds the served tables in ref_next from the staging tables, then freezes them: the

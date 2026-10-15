@@ -31,6 +31,23 @@ const EXAMPLES: Array<[string, CategoryGroup]> = [
   ["attorney_or_law_firm", "services"],
   ["barber", "other"],
   ["", "other"],
+  // OpenStreetMap tags (key=value)
+  ["amenity=restaurant", "food_drink"],
+  ["railway=station", "transit"],
+  ["railway=halt", "transit"],
+  ["public_transport=station", "transit"],
+  ["aeroway=terminal", "transit"],
+  ["amenity=bus_station", "transit"],
+  ["tourism=museum", "culture"],
+  ["leisure=park", "nature"],
+  ["natural=peak", "nature"],
+  ["historic=memorial", "sights"],
+  ["amenity=place_of_worship", "sights"],
+  ["place=square", "sights"],
+  ["shop=clothes", "shopping"],
+  ["office=company", "services"],
+  ["amenity=school", "services"],
+  ["leisure=fitness_centre", "other"],
 ];
 
 test("categoryGroup sorts real source categories into groups", () => {

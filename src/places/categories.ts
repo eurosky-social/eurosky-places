@@ -23,7 +23,7 @@ export type CategoryGroup = (typeof CATEGORY_GROUPS)[number];
 export const CATEGORY_RULES: ReadonlyArray<readonly [CategoryGroup, string]> = [
   // Must come before "nature", whose pattern matches "park".
   ["services", "parking|car_park|car park"],
-  ["transit", "(rail|train|subway|metro|tram|bus)[ _]?station|airport|aerodrome|ferry|transport hub|light rail"],
+  ["transit", "(rail|train|subway|metro|tram|bus)[ _]?station|railway=(station|halt)|public_transport=station|aeroway=terminal|airport|aerodrome|ferry|transport hub|light rail"],
   ["lodging", "hotel|hostel|guest_?house|motel|lodging|accommodation|bed and breakfast|bed_and_breakfast|resort|holiday_rental|vacation_rental|campground|camping"],
   ["food_drink", "restaurant|dining|cafe|café|coffee|\\bbars?\\b|_bar\\b|\\bpub\\b|biergarten|beer_garden|brewery|winery|cocktail|fast_food|ice_cream|dessert|tapas|bistro|food_court|nightlife|night_?club|eat_and_drink|food_and_drink|bakery|eatery|snack|burger|pizza|kebab|doner|deli\\b"],
   ["culture", "museum|theat|cinema|movie|gallery|arts_centre|arts and entertainment|arts_and_entertainment|music|concert|opera|\\bzoo\\b|aquarium|stadium|arena|events?_venue|theme_park|amusement|performing|festival|planetarium"],
@@ -43,6 +43,22 @@ export function categoryGroup(description: string): CategoryGroup {
     if (re.test(text)) return group;
   }
   return "other";
+}
+
+// The same rules as a Postgres function `<schema>.category_group(description)`, for
+// OpenStreetMap places, which osm2pgsql writes straight into Postgres. Postgres regular
+// expressions spell a word boundary `\y` (`\b` means backspace there).
+export function categoryGroupPostgresSql(schema: string): string {
+  const arms = CATEGORY_RULES.map(
+    ([group, pattern]) => `WHEN d ~ '${pattern.replaceAll("\\b", "\\y").replaceAll("'", "''")}' THEN '${group}'`,
+  ).join("\n      ");
+  return `CREATE OR REPLACE FUNCTION ${schema}.category_group(description text) RETURNS text
+  LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+    SELECT CASE
+      ${arms}
+      ELSE 'other'
+    END FROM (SELECT lower(coalesce(description, '')) AS d) AS x
+  $$`;
 }
 
 // The same rules as a DuckDB macro, `category_group(description)`.

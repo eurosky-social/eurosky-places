@@ -44,7 +44,7 @@ export function foursquareCutoff(release: string): string {
 
 export function overturePlacesSql(source: string, bbox: BBox | null): string {
   return `
-    INSERT INTO pg.ref_next.stage_places
+    INSERT INTO pg.ref_next.stage_places (dataset, collection, id, name, category, category_group, confidence, lon, lat)
     SELECT ${lit(DATASETS.overture)}, 'place', id, names.primary, basic_category,
            category_group(concat_ws(' ', basic_category, array_to_string(taxonomy.hierarchy, ' > '))),
            confidence, (bbox.xmin + bbox.xmax) / 2, (bbox.ymin + bbox.ymax) / 2
@@ -60,7 +60,7 @@ export function overturePlacesSql(source: string, bbox: BBox | null): string {
 
 export function foursquarePlacesSql(source: string, cutoff: string, bbox: BBox | null): string {
   return `
-    INSERT INTO pg.ref_next.stage_places
+    INSERT INTO pg.ref_next.stage_places (dataset, collection, id, name, category, category_group, confidence, lon, lat)
     SELECT ${lit(DATASETS.foursquare)}, 'place', fsq_place_id, name,
            list_last(string_split(fsq_category_labels[1], ' > ')),
            category_group(fsq_category_labels[1]),
@@ -76,7 +76,7 @@ export function foursquarePlacesSql(source: string, cutoff: string, bbox: BBox |
 
 export function overtureAreasSql(source: string, bbox: BBox | null): string {
   return `
-    INSERT INTO pg.ref_next.stage_areas
+    INSERT INTO pg.ref_next.stage_areas (division_id, subtype, name, country, wkb)
     SELECT division_id, subtype, names.primary, country, ST_AsWKB(geometry)::BLOB
     FROM read_parquet(${lit(source)})
     WHERE ${bboxFilter(bbox, OVERTURE_BBOX)}
@@ -85,7 +85,7 @@ export function overtureAreasSql(source: string, bbox: BBox | null): string {
 
 export function overtureAddressesSql(source: string, bbox: BBox | null): string {
   return `
-    INSERT INTO pg.ref_next.stage_addresses
+    INSERT INTO pg.ref_next.stage_addresses (street, number, postcode, lon, lat)
     SELECT street, number, postcode, (bbox.xmin + bbox.xmax) / 2, (bbox.ymin + bbox.ymax) / 2
     FROM read_parquet(${lit(source)})
     WHERE ${bboxFilter(bbox, OVERTURE_BBOX)}
