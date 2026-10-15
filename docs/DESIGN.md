@@ -15,10 +15,11 @@ publishes Berlin's location, never the user's point.
 
 Events are out of scope; they are handled by a separate component.
 
-## Interfaces (planned)
+## Interfaces
 
-- **Endpoint A (EUR-480):** exact position in (request body, never the URL), ranked places
-  and containing areas out. Type-ahead on top (EUR-482).
+- **Endpoint A (EUR-480), `POST /v1/suggestions`:** exact position in (request body, never
+  the URL), ranked places, the street and the containing areas out. Type-ahead on top
+  (EUR-482). See the README for the request and response.
 - **Endpoint B (EUR-481):** everything in a fixed ~1 km square (coordinates rounded to two
   decimals). The same square has the same URL for everyone, so responses are cacheable on
   the phone and a CDN. For clients that do not want to send a precise position. Finer
@@ -45,6 +46,46 @@ rural Tyrol, by name + distance matching):
 Overture's September 2026 release added BrightQuery company-registry records (Germany,
 Italy, Denmark, US): in Berlin Mitte 13,270 of 23,003 open Overture records were
 registry-only legal entities, not venues. They are filtered.
+
+## Suggestions: merging and ranking (EUR-480)
+
+- **Candidates:** the 400 nearest places people check into or photograph (food and drink,
+  culture, transit, sights, nature, lodging) plus the 100 nearest of everything else,
+  within the radius (default 500 m). Fetching the two separately keeps a café 300 m away in
+  play when a dense street has hundreds of closer offices and shops.
+- **Merging:** records from different sources are one place when they are within 75 m,
+  their normalised names are equal or ≥ 0.9 similar (edit distance), and their kinds are
+  compatible. Also when one name is the leading words of the other ("Hugendubel" /
+  "Hugendubel Berlin Hermannplatz im Karstadt"), but only within 50 m and for the same
+  kind, because "Karstadt" next to "Karstadt Reisebüro" is two places. Two records from
+  the same source are never merged. The merged place takes the ID of the most stable
+  source (Foursquare, then OSM, then Overture); the others go into `sameAs`. Known miss:
+  the same station under unrelated names ("U Hermannplatz" / "Hermannplatz Berlin
+  Neukölln") stays two entries.
+- **Ranking:** `(distance + 10 m) / (kind weight × (1 + 0.25 × extra sources))`, lower
+  first. Kind weights: food and drink, culture, transit, sights 1; nature, lodging 0.9;
+  shopping 0.7; other 0.5; services 0.35. A first cut, to be tuned against real check-ins
+  and joined by popularity (EUR-483).
+- **Speed** (Berlin slice, local Postgres in Docker on a laptop, `npm run bench`): one
+  request at a time p50 ~8 ms, p95 ~23 ms; eight at a time ~360 requests/s, p95 ~37 ms.
+  Name comparison is the hot spot in dense streets (hundreds of thousands of pairs), which
+  is why it bails out early (`similarEnough`); a full edit distance for every pair made
+  eight concurrent requests drop to ~22 requests/s.
+
+## Areas: ordered by size, not mapped to levels (decided 2026-10-15)
+
+The plan was to map Overture's area types to street / district / city / country. Checked
+in twelve cities, that does not work: the city is a `region` in Berlin, Hamburg, Vienna
+and Prague, a `county` in Munich, a `locality` in Madrid, Paris and Amsterdam, and in New
+York both Brooklyn and New York are localities; London has no city at all around
+Shoreditch. So the response lists the areas containing the user's position ordered by
+size, smallest first, and drops all but the smallest of a run of same-named areas (Paris
+is a county, a municipality and a city; Neukölln a borough and a district). Each area keeps
+Overture's type and has a representative point inside it, computed at load time, which is
+what an app publishes when the user picks that area.
+
+The street comes from Overture addresses: the street of the nearest address within 100 m,
+with the middle of that street's addresses within 250 m as its point.
 
 ## Place identity
 

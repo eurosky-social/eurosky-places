@@ -25,23 +25,44 @@ ORDER BY ST_GeoHash(ST_SetSRID(ST_MakePoint(lon, lat), 4326), 12);
 ALTER TABLE ref_next.places ADD PRIMARY KEY (origin);
 CREATE INDEX places_geog_idx ON ref_next.places USING gist (geog);
 
--- Boundary outlines are cut into pieces of at most 256 points: testing a point against
--- Germany's ~160,000-point outline is slow, against a small piece it is cheap.
-CREATE TABLE ref_next.areas (
-  id       bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  origin   text NOT NULL,             -- urn:atgeo:overturemaps.org:division:{id}
+-- Boundaries (districts up to countries). Overture's types do not line up with "city" or
+-- "district" consistently (Berlin is a region, Munich a county, New York and Brooklyn are
+-- both localities), so lookups order the containing areas by size instead; area_m2 is
+-- what they sort by. `point` is a representative point inside the area: what an app
+-- publishes when the user picks that area instead of their own position.
+CREATE UNLOGGED TABLE ref_next.stage_area_shapes AS
+SELECT format('urn:atgeo:overturemaps.org:division:%s', division_id) AS origin, subtype, name, country,
+       ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromWKB(wkb), 4326)), 3) AS geom
+FROM ref_next.stage_areas;
+DELETE FROM ref_next.stage_area_shapes WHERE ST_IsEmpty(geom);
+
+CREATE TABLE ref_next.divisions (
+  origin   text PRIMARY KEY,          -- urn:atgeo:overturemaps.org:division:{id}
   subtype  text NOT NULL,             -- country, region, county, locality, macrohood, neighborhood, …
   name     text NOT NULL,
   country  text,
-  geom     geometry(Polygon, 4326) NOT NULL
+  area_m2  double precision NOT NULL,
+  point    geography(Point, 4326) NOT NULL
 );
 
-INSERT INTO ref_next.areas (origin, subtype, name, country, geom)
-SELECT format('urn:atgeo:overturemaps.org:division:%s', s.division_id), s.subtype, s.name, s.country, d.geom
-FROM ref_next.stage_areas s
-CROSS JOIN LATERAL ST_Subdivide(
-  ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromWKB(s.wkb), 4326)), 3), 256
-) AS piece
+-- A division normally has one land outline; if it ever has several, the largest wins.
+INSERT INTO ref_next.divisions
+SELECT DISTINCT ON (origin) origin, subtype, name, country, ST_Area(geom::geography), ST_PointOnSurface(geom)::geography
+FROM ref_next.stage_area_shapes
+ORDER BY origin, ST_Area(geom::geography) DESC;
+
+-- Outlines cut into pieces of at most 256 points: testing a point against Germany's
+-- ~160,000-point outline is slow, against a small piece it is cheap.
+CREATE TABLE ref_next.areas (
+  id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  origin  text NOT NULL REFERENCES ref_next.divisions,
+  geom    geometry(Polygon, 4326) NOT NULL
+);
+
+INSERT INTO ref_next.areas (origin, geom)
+SELECT s.origin, d.geom
+FROM ref_next.stage_area_shapes s
+CROSS JOIN LATERAL ST_Subdivide(s.geom, 256) AS piece
 CROSS JOIN LATERAL ST_Dump(piece) AS d
 WHERE GeometryType(d.geom) = 'POLYGON';
 
@@ -63,4 +84,4 @@ ORDER BY ST_GeoHash(ST_SetSRID(ST_MakePoint(lon, lat), 4326), 12);
 
 CREATE INDEX addresses_geog_idx ON ref_next.addresses USING gist (geog);
 
-DROP TABLE ref_next.stage_places, ref_next.stage_areas, ref_next.stage_addresses;
+DROP TABLE ref_next.stage_places, ref_next.stage_areas, ref_next.stage_area_shapes, ref_next.stage_addresses;

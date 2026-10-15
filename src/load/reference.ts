@@ -10,7 +10,7 @@ export interface Release {
   bbox: BBox | null;
 }
 
-export const REFERENCE_TABLES = ["places", "areas", "addresses"] as const;
+export const REFERENCE_TABLES = ["places", "divisions", "areas", "addresses"] as const;
 
 // Recreates schema ref_next with empty staging tables.
 export async function prepareStaging(pool: Pool): Promise<void> {
