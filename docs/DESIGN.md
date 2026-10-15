@@ -77,6 +77,45 @@ registry-only legal entities, not venues. They are filtered.
   is why it bails out early (`similarEnough`); a full edit distance for every pair made
   eight concurrent requests drop to ~22 requests/s.
 
+## Type-ahead (EUR-482)
+
+`POST /v1/search` matches what the user types in two tiers and ranks them together.
+
+- **Prominence** is Wikipedia importance (0–1) from the Nominatim project's file, joined
+  through Wikidata IDs: OSM tags for places, Overture's division records for areas. A load
+  streams the file and keeps only the IDs it has. Places without a Wikidata ID have none.
+- **Notable tier:** `ref.search_names` holds every area and every place with prominence,
+  under all its names (main, other languages, alternative names), one row per word the
+  name can be found by ("brandenburger tor", "tor"), with prominence and position copied
+  in. Prefix match on that (B-tree, `text_pattern_ops`): the 200 most prominent matches
+  worldwide plus the 100 nearest within 50 km. If that gives fewer results than asked
+  for, typos are tried: trigram similarity ≥ 0.4 on whole names.
+- **Nearby tier:** places within 2 km (1 km for two letters) whose normalised name has a
+  word starting with the text. From three letters on, a trigram index on the name
+  (`places_name_trgm_idx`, ~30% of the places table) lets Postgres intersect "names
+  containing the text" with "places within 2 km" instead of filtering every nearby place
+  (central Berlin: ~400 rows instead of ~27,000). Two letters have no trigram to look up,
+  so they use the spatial index alone, over the smaller radius.
+- Names are normalised in Postgres (`places_norm`: lower case, no accents, non-letters to
+  spaces) for both the stored names and the text, so they always agree.
+- Notable places are merged with their twins from other sources (fetched within 75 m), so
+  search returns the same IDs as suggestions; hidden places are dropped, check-ins count.
+- **Score** (higher first): match (start 1, later word 0.85, other name 0.8, typo 0.5) ×
+  kind weight × source agreement (1 + 0.25 per extra source) × (0.15 + prominence + 0.1 ×
+  check-in lift) × closeness, where closeness is `1 / (1 + log2(1 + km))` and areas the
+  user is in count as distance 0. A famous place 4.5 km away (Brandenburger Tor) beats an
+  unknown café 300 m away with a similar name.
+- **Typos only fill up:** approximate matches come after everything that matched what was
+  typed, whatever their score. Otherwise "Tempelhofer" put the well-known district
+  Tempelhof (a typo match) above the park Tempelhofer Feld (exactly what was typed).
+- **One entry per thing:** results with the same Wikidata ID, or with the same name and
+  kind within 400 m (the U-Bahn and S-Bahn station "Brandenburger Tor" are two OSM
+  objects), are shown once.
+- **Speed** (Berlin slice, laptop, `npm run bench -- --search`, real names typed letter by
+  letter): one at a time p50 ~12 ms, p95 ~31 ms; eight at a time ~390 requests/s, p95
+  ~49 ms. The pool runs without parallel query workers: for request-sized queries their
+  start-up cost more than they saved (~30 ms of a ~40 ms query).
+
 ## Squares (EUR-481)
 
 A square is 0.01° × 0.01°, named by its south-west corner with exactly two decimals. The

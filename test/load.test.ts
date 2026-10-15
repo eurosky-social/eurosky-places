@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { DuckDBInstance } from "@duckdb/node-api";
 import type { Pool } from "../src/db.ts";
-import { extractToStaging, type SourcePaths } from "../src/load/extract.ts";
+import { extractImportance, extractToStaging, type SourcePaths } from "../src/load/extract.ts";
 import { buildReference, prepareStaging, rollbackReference, swapReference, type BBox } from "../src/load/reference.ts";
 import { freshDatabase, TEST_DATABASE_URL } from "./helpers/db.ts";
 
@@ -16,6 +16,7 @@ const BERLIN: BBox = [13.08, 52.33, 13.76, 52.68];
 let pool: Pool;
 let dir: string;
 let paths: SourcePaths;
+let importanceFile: string;
 
 async function writeFixtures(target: string): Promise<SourcePaths> {
   const instance = await DuckDBInstance.create(":memory:");
@@ -63,6 +64,13 @@ async function writeFixtures(target: string): Promise<SourcePaths> {
       ('Hermannplatz', '5', '10967', ${bbox(13.4246, 52.4869)}),
       (NULL, '7', '10967', ${bbox(13.4247, 52.4869)})
     ) AS t(street, number, postcode, bbox)) TO '${p("overture-addresses.parquet")}'`);
+
+    // Division records: Wikidata IDs and names in other languages for the areas above.
+    await con.run(`COPY (SELECT * FROM (VALUES
+      ('div-country', 'Q183', 83000000, {'primary': 'Testland', 'common': MAP {'en': 'Testland', 'fr': 'Pays de Test'}}, ${bbox(13.4, 52.5)}),
+      ('div-district', NULL, 330000, {'primary': 'Neukölln', 'common': NULL::MAP(VARCHAR, VARCHAR)}, ${bbox(13.43, 52.48)}),
+      ('div-munich', 'Q1726', 1500000, {'primary': 'München', 'common': MAP {'en': 'Munich'}}, ${bbox(11.57, 48.14)})
+    ) AS t(id, wikidata, population, names, bbox)) TO '${p("overture-divisions.parquet")}'`);
   } finally {
     con.closeSync();
     instance.closeSync();
@@ -70,9 +78,26 @@ async function writeFixtures(target: string): Promise<SourcePaths> {
   return {
     overturePlaces: p("overture-places.parquet"),
     foursquarePlaces: p("foursquare-places.parquet"),
+    overtureDivisions: p("overture-divisions.parquet"),
     overtureAreas: p("overture-areas.parquet"),
     overtureAddresses: p("overture-addresses.parquet"),
   };
+}
+
+// The Nominatim importance file's format: tab-separated, one row per article or redirect.
+async function writeImportance(target: string): Promise<string> {
+  const file = join(target, "wikimedia-importance.tsv");
+  await writeFile(
+    file,
+    [
+      "language\ttype\ttitle\timportance\twikidata_id",
+      "en\ta\tGermany\t0.8\tQ183",
+      "de\tr\tTestland_(redirect)\t0.6\tQ183",
+      'en\ta\t"Weird"_Al\t0.5\tQ99999',
+      "en\ta\tMunich\t0.7\tQ1726",
+    ].join("\n") + "\n",
+  );
+  return file;
 }
 
 async function load(sources: Record<string, string>) {
@@ -83,6 +108,7 @@ async function load(sources: Record<string, string>) {
     foursquareCutoff: "2024-09-15",
     bbox: BERLIN,
   });
+  await extractImportance({ databaseUrl: TEST_DATABASE_URL, source: importanceFile });
   const counts = await buildReference(pool);
   const hadPrevious = await swapReference(pool, { sources, bbox: BERLIN }, counts);
   return { extracted, counts, hadPrevious };
@@ -92,6 +118,7 @@ before(async () => {
   pool = await freshDatabase();
   dir = await mkdtemp(join(tmpdir(), "eurosky-places-"));
   paths = await writeFixtures(dir);
+  importanceFile = await writeImportance(dir);
 });
 
 after(async () => {
@@ -106,7 +133,8 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
   const { extracted, counts, hadPrevious } = await load({ overture: "fixture-1", foursquare: "fixture-1" });
 
   assert.equal(hadPrevious, false);
-  assert.deepEqual(extracted, { overture_places: 2, foursquare_places: 2, areas: 2, addresses: 1 });
+  // Munich's division record is outside the Berlin bbox.
+  assert.deepEqual(extracted, { overture_places: 2, foursquare_places: 2, divisions: 2, areas: 2, addresses: 1 });
   const { rows } = await pool.query("SELECT origin, name, category, category_group FROM ref.places ORDER BY origin");
   assert.deepEqual(rows, [
     { origin: "urn:atgeo:foursquare.com:place:fsq-noflags", name: "Zapfhahn", category: "Pub", category_group: "food_drink" },
@@ -140,6 +168,19 @@ test("large boundary outlines are cut into pieces that still answer point lookup
     { origin: "urn:atgeo:overturemaps.org:division:div-country", subtype: "country", name: "Testland" },
     { origin: "urn:atgeo:overturemaps.org:division:div-district", subtype: "macrohood", name: "Neukölln" },
   ]);
+});
+
+test("areas get their Wikidata ID, population and Wikipedia prominence", async () => {
+  const { rows } = await pool.query("SELECT name, wikidata, population::int, prominence FROM ref.divisions ORDER BY name");
+  assert.deepEqual(
+    rows.map((r) => [r.name, r.wikidata, r.population, Math.round(r.prominence * 100) / 100]),
+    [
+      ["Neukölln", null, 330000, 0],
+      ["Testland", "Q183", 83000000, 0.8], // the highest of the article and the redirect
+    ],
+  );
+  const names = await pool.query("SELECT label, term FROM ref.search_names WHERE origin LIKE '%div-country' ORDER BY term");
+  assert.deepEqual(names.rows.map((r) => r.term), ["de test", "pays de test", "test", "testland"]);
 });
 
 test("each area gets its size and a point inside it", async () => {

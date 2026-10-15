@@ -1,6 +1,7 @@
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from "fastify";
 import type { Pool } from "./db.ts";
 import { registerInternalRoutes } from "./internal.ts";
+import { search, type SearchRequest } from "./search.ts";
 import { parseSquare, SquareError, squareContents } from "./squares.ts";
 import { suggest, type SuggestRequest } from "./suggest.ts";
 
@@ -39,6 +40,20 @@ const suggestBody = {
   },
 } as const;
 
+// Type-ahead: what the user typed, and optionally where they are (both in the body).
+const searchBody = {
+  type: "object",
+  required: ["q"],
+  additionalProperties: false,
+  properties: {
+    q: { type: "string", minLength: 1, maxLength: 100 },
+    lat: { type: "number", minimum: -90, maximum: 90 },
+    lng: { type: "number", minimum: -180, maximum: 180 },
+    limit: { type: "integer", minimum: 1, maximum: 30, default: 10 },
+  },
+  dependencies: { lat: ["lng"], lng: ["lat"] },
+} as const;
+
 // Postgres error codes for a missing schema or table: no data load has run yet.
 const NO_DATA_CODES = new Set(["3F000", "42P01"]);
 
@@ -66,6 +81,20 @@ export function buildApp({ pool, logger = false, internalToken, squarePageSize =
     reply.header("Cache-Control", "no-store");
     try {
       return await suggest(pool, request.body);
+    } catch (error) {
+      if (NO_DATA_CODES.has((error as { code?: string }).code ?? "")) {
+        return reply.code(503).send({ error: "NoData", message: "no place data has been loaded yet" });
+      }
+      throw error;
+    }
+  });
+
+  // Type-ahead (EUR-482): notable places and areas worldwide, and everything nearby.
+  app.post<{ Body: SearchRequest }>("/v1/search", { schema: { body: searchBody } }, async (request, reply) => {
+    // What people type, and where they are, must not be kept anywhere along the way.
+    reply.header("Cache-Control", "no-store");
+    try {
+      return { results: await search(pool, request.body) };
     } catch (error) {
       if (NO_DATA_CODES.has((error as { code?: string }).code ?? "")) {
         return reply.code(503).send({ error: "NoData", message: "no place data has been loaded yet" });

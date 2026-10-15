@@ -26,6 +26,20 @@ CREATE UNLOGGED TABLE ref_next.stage_areas (
   wkb          bytea NOT NULL
 );
 
+-- Overture's division records (one per area): what the outlines in stage_areas lack.
+CREATE UNLOGGED TABLE ref_next.stage_divisions (
+  division_id  text NOT NULL,
+  wikidata     text,
+  population   bigint,
+  names        text                     -- JSON object, language -> name (Overture names.common)
+);
+
+-- Wikipedia prominence (0–1) per Wikidata ID, only for IDs some staged place or area has.
+CREATE UNLOGGED TABLE ref_next.stage_importance (
+  wikidata    text NOT NULL,
+  importance  double precision NOT NULL
+);
+
 CREATE UNLOGGED TABLE ref_next.stage_addresses (
   street    text NOT NULL,
   number    text,

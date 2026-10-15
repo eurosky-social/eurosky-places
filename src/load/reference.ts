@@ -11,7 +11,7 @@ export interface Release {
   bbox: BBox | null;
 }
 
-export const REFERENCE_TABLES = ["places", "place_names", "divisions", "areas", "addresses", "streets"] as const;
+export const REFERENCE_TABLES = ["places", "place_names", "divisions", "areas", "search_names", "addresses", "streets"] as const;
 
 // Recreates schema ref_next with empty staging tables, and the function that sorts
 // OpenStreetMap categories into groups (the same rules the DuckDB extraction uses).

@@ -17,7 +17,7 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 | OpenStreetMap import (osm2pgsql) | EUR-479 | done (`--osm`) |
 | Endpoint A: suggestions for a position | EUR-480 | done (`POST /v1/suggestions`) |
 | Endpoint B: cacheable ~1 km squares | EUR-481 | done (`GET /v1/squares/{lat},{lng}`) |
-| Type-ahead | EUR-482 | to do |
+| Type-ahead | EUR-482 | done (`POST /v1/search`) |
 | Check-in counts, popularity, overrides | EUR-483 | done (`/internal/*`) |
 | Worldwide benchmark on a temporary server | EUR-484 | to do |
 | Host and monthly job (eurosky-infra) | EUR-485 | to do |
@@ -42,7 +42,9 @@ Foursquare dataset is gated: the load needs `HF_TOKEN` (or `~/.huggingface/token
 Hugging Face account that accepted its terms. A worldwide load needs `--worldwide`
 explicitly and belongs on the production host, not a laptop (~25 GB of downloads plus the
 88 GB OpenStreetMap planet file, which it needs via `--osm`; pass `--osm-flat-nodes <file>`
-so osm2pgsql keeps node positions on disk). `--osm` is optional for `--bbox` loads.
+so osm2pgsql keeps node positions on disk). `--osm` is optional for `--bbox` loads. Every
+load also streams the Wikipedia importance file from nominatim.org (~320 MB, keeps only
+the Wikidata IDs it needs); `--wikimedia <path>` uses a local copy instead.
 
 Configuration is by environment variable; see [.env.example](.env.example).
 
@@ -109,6 +111,38 @@ Response at Hermannplatz, Berlin (real data, shortened):
   Types are not consistent across countries (Berlin is a `region`, Munich a `county`), so
   the list is ordered by size rather than labelled street / district / city.
 
+## Type-ahead: `POST /v1/search`
+
+What the user is typing, and optionally where they are, both in the body (`no-store`,
+nothing logged). Send after ~150 ms without typing.
+
+```sh
+curl -s localhost:3000/v1/search -H 'content-type: application/json' \
+  -d '{"q": "Brandenb", "lat": 52.4867, "lng": 13.4245}'
+```
+
+| Field | | |
+|---|---|---|
+| `q` | required, 1–100 characters | fewer than two letters or digits give no results |
+| `lat`, `lng` | optional, together | without them only notable places and areas are searched |
+| `limit` | 1–30, default 10 | |
+
+Two tiers, ranked together:
+
+- **notable, worldwide:** every area and every place with a Wikipedia article, under all
+  its names and languages ("Brandenburg Gate", "Berlino"), matched at the start of any
+  word of the name; typos are matched approximately when there are few hits.
+- **nearby** (with a position): every place within 2 km (1 km for two letters) whose name
+  has a word starting with the text.
+
+Typo matches only fill up the list after real matches; the same thing found twice (same
+Wikidata ID, or same name and kind within 400 m) is shown once.
+
+`results[]`: `kind` (`place` or `area`), `origin`, `sameAs`, `name`, `matched` (the name
+that matched, if another), `match` (`start`, `word`, `other_name`, `approximate`), for
+places `category`, `group`, `checkins`, for areas `subtype`, `country`, then `lat`, `lng`
+and, with a position, `distance` (0 for areas the user is in).
+
 ## Endpoint B: `GET /v1/squares/{lat},{lng}`
 
 Everything in one square of 0.01° × 0.01° (about 1.1 km × 0.7 km in Berlin), for apps that
@@ -151,7 +185,7 @@ needs `Authorization: Bearer $INTERNAL_TOKEN`. Keep `/internal/` off the public 
 | `npm start` | HTTP server |
 | `npm run migrate` | Applies `db/migrations/*.sql` (schemas `meta` and `live`) |
 | `npm run load -- --bbox …` / `--worldwide` | Builds the next reference data and swaps it in |
-| `npm run bench` | Times endpoint A on random points against the loaded data; `-- --show lat,lng` prints one answer |
+| `npm run bench` | Times endpoint A on random points against the loaded data; `-- --show lat,lng` prints one answer; `-- --search` times type-ahead with real names typed letter by letter |
 | `npm test` | Tests; they recreate the `places_test` database on every run (needs `docker compose up`) |
 | `npm run ci` | Type check + tests, as in CI |
 
