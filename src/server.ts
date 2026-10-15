@@ -1,6 +1,7 @@
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from "fastify";
 import type { Pool } from "./db.ts";
 import { registerInternalRoutes } from "./internal.ts";
+import { parseSquare, SquareError, squareContents } from "./squares.ts";
 import { suggest, type SuggestRequest } from "./suggest.ts";
 
 export interface AppOptions {
@@ -8,7 +9,21 @@ export interface AppOptions {
   logger?: FastifyServerOptions["logger"];
   // Enables /internal/* when set.
   internalToken?: string;
+  // Places per page of a square (endpoint B).
+  squarePageSize?: number;
 }
+
+// Square responses change only with a data load or live data (check-ins, overrides), so
+// phones and the CDN may keep them for an hour.
+const SQUARE_CACHE = "public, max-age=3600";
+
+// Only `page` is allowed: anything else in the URL (a precise position appended by a
+// careless client, say) is refused rather than ignored.
+const squareQuery = {
+  type: "object",
+  additionalProperties: false,
+  properties: { page: { type: "integer", minimum: 1, maximum: 1000, default: 1 } },
+} as const;
 
 // The position goes in the request body, never the URL: URLs end up in proxy, CDN and
 // access logs along the way.
@@ -27,7 +42,7 @@ const suggestBody = {
 // Postgres error codes for a missing schema or table: no data load has run yet.
 const NO_DATA_CODES = new Set(["3F000", "42P01"]);
 
-export function buildApp({ pool, logger = false, internalToken }: AppOptions): FastifyInstance {
+export function buildApp({ pool, logger = false, internalToken, squarePageSize = 500 }: AppOptions): FastifyInstance {
   // Per-request log lines stay off: requests carry users' positions, and nothing about
   // them should end up in logs.
   const app = Fastify({
@@ -58,6 +73,26 @@ export function buildApp({ pool, logger = false, internalToken }: AppOptions): F
       throw error;
     }
   });
+
+  // Endpoint B: everything in one ~1 km square, for apps that do not send a position.
+  app.get<{ Params: { square: string }; Querystring: { page: number } }>(
+    "/v1/squares/:square",
+    { schema: { querystring: squareQuery } },
+    async (request, reply) => {
+      try {
+        const square = parseSquare(request.params.square);
+        const body = await squareContents(pool, square, request.query.page, squarePageSize);
+        reply.header("Cache-Control", SQUARE_CACHE);
+        return body;
+      } catch (error) {
+        if (error instanceof SquareError) return reply.code(400).send({ error: error.code, message: error.message });
+        if (NO_DATA_CODES.has((error as { code?: string }).code ?? "")) {
+          return reply.code(503).send({ error: "NoData", message: "no place data has been loaded yet" });
+        }
+        throw error;
+      }
+    },
+  );
 
   if (internalToken) registerInternalRoutes(app, pool, internalToken);
 
