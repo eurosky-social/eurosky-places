@@ -62,12 +62,17 @@ registry-only legal entities, not venues. They are filtered.
   source (Foursquare, then OSM, then Overture); the others go into `sameAs`. Known miss:
   the same station under unrelated names ("U Hermannplatz" / "Hermannplatz Berlin
   Neukölln") stays two entries.
-- **Ranking:** `(distance + 10 m) / (kind weight × (1 + 0.25 × extra sources))`, lower
-  first. Kind weights: food and drink, culture, transit, sights 1; nature, lodging 0.9;
-  shopping 0.7; other 0.5; services 0.35. A first cut, to be tuned against real check-ins
-  and joined by popularity (EUR-483).
+- **Ranking:** `(distance + 10 m) / (kind weight × (1 + 0.25 × extra sources) × popularity)`,
+  lower first. Kind weights: food and drink, culture, transit, sights 1; nature, lodging
+  0.9; shopping 0.7; other 0.5; services 0.35. Popularity `1 + ln(1 + check-ins in the
+  last 30 days) / 2 + ln(1 + all check-ins) / 4`: 10 recent check-ins make a place rank
+  as if it were ~2.8× closer. A first cut, to be tuned against real check-ins.
+- **Live data** (EUR-483): hidden places (an override on any of a merged place's IDs) are
+  dropped, renamed ones get our name, and check-ins under all of a place's IDs add up. One
+  extra query per request fetches both.
 - **Speed** (Berlin slice, local Postgres in Docker on a laptop, `npm run bench`): one
-  request at a time p50 ~8 ms, p95 ~23 ms; eight at a time ~360 requests/s, p95 ~37 ms.
+  request at a time p50 ~8–11 ms, p95 ~22–34 ms; eight at a time ~280 requests/s, p95
+  ~40 ms (~360 requests/s before the live-data query).
   Name comparison is the hot spot in dense streets (hundreds of thousands of pairs), which
   is why it bails out early (`similarEnough`); a full edit distance for every pair made
   eight concurrent requests drop to ~22 requests/s.
@@ -98,8 +103,14 @@ OpenStreetMap ~97% over 5 months, Overture only ~38% over a year worldwide (July
 a one-off full re-match; monthly removals have been 0.5–20%). Consequences:
 
 - published check-ins carry a copy of the place's name and coordinates next to its ID;
-- check-in counts are keyed by the most stable ID a place has (Foursquare, then OSM, then
-  Overture) and re-attached by name + distance when a key disappears (EUR-483).
+- check-ins and overrides are keyed by the ID an app published, which is the merged
+  place's most stable ID (Foursquare, then OSM, then Overture), and counted under all of a
+  place's IDs.
+- after every load, live data whose ID is no longer in the reference data moves to the
+  same place's new ID: the place nearest to where it was (within 75 m) with a matching
+  name (same rules as merging). The move is recorded in `live.key_moves`, so check-ins and
+  overrides that still use the old ID land on the new one. Without a match the data stays
+  under the old ID.
 
 ## Storage: Postgres + PostGIS (decided 2026-10-15)
 
@@ -115,7 +126,9 @@ Schemas:
 - `ref`: reference data (places, areas, addresses). Rebuilt from scratch by every load in
   `ref_next`, stored in location order (geohash), frozen (`VACUUM FREEZE`), then swapped in
   one transaction. The previous one stays as `ref_prev` for rollback.
-- `live`: check-in counts and overrides. Survives loads.
+- `live`: survives loads. `checkins` (one row per check-in record, so duplicates,
+  deletions and "last 30 days" work), `place_overrides`, `place_snapshots` (name and
+  position of every place with live data, for following ID changes), `key_moves`.
 - `meta`: migrations and one row per completed load.
 
 ## Privacy

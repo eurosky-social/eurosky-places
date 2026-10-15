@@ -4,7 +4,7 @@ import { buildApp } from "./server.ts";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
-const app = buildApp({ pool, logger: true });
+const app = buildApp({ pool, logger: true, internalToken: config.internalToken });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {

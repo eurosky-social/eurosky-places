@@ -6,13 +6,20 @@ export interface Config {
   databaseUrl: string;
   host: string;
   port: number;
+  // Shared secret for /internal/* (check-in listener, admin overrides); unset disables them.
+  internalToken: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const internalToken = env.INTERNAL_TOKEN || undefined;
+  if (internalToken && internalToken.length < 32) {
+    throw new Error("INTERNAL_TOKEN must be at least 32 characters");
+  }
   return {
     databaseUrl: env.DATABASE_URL ?? "postgres://places:places@127.0.0.1:5433/places",
     host: env.HOST ?? "127.0.0.1",
     port: Number(env.PORT ?? 3000),
+    internalToken,
   };
 }
 

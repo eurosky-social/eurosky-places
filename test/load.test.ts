@@ -100,7 +100,9 @@ after(async () => {
 });
 
 test("a load keeps only current, confirmed venues inside the area", async () => {
-  await pool.query("INSERT INTO live.checkin_counts (place_key, total) VALUES ('urn:atgeo:foursquare.com:place:fsq-station', 3)");
+  await pool.query(
+    "INSERT INTO live.checkins (uri, place_key, created_at) VALUES ('at://did:plc:test/x/1', 'urn:atgeo:foursquare.com:place:fsq-station', now())",
+  );
   const { extracted, counts, hadPrevious } = await load({ overture: "fixture-1", foursquare: "fixture-1" });
 
   assert.equal(hadPrevious, false);
@@ -116,8 +118,8 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
   assert.equal(counts.divisions, 2);
   assert.equal(counts.addresses, 1);
   // Live data is not touched by a load.
-  const live = await pool.query("SELECT total FROM live.checkin_counts");
-  assert.equal(live.rows[0].total, 3);
+  const live = await pool.query("SELECT count(*)::int AS n FROM live.checkins");
+  assert.equal(live.rows[0].n, 1);
 });
 
 test("large boundary outlines are cut into pieces that still answer point lookups", async () => {

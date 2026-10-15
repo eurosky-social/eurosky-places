@@ -1,10 +1,13 @@
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from "fastify";
 import type { Pool } from "./db.ts";
+import { registerInternalRoutes } from "./internal.ts";
 import { suggest, type SuggestRequest } from "./suggest.ts";
 
 export interface AppOptions {
   pool: Pool;
   logger?: FastifyServerOptions["logger"];
+  // Enables /internal/* when set.
+  internalToken?: string;
 }
 
 // The position goes in the request body, never the URL: URLs end up in proxy, CDN and
@@ -24,7 +27,7 @@ const suggestBody = {
 // Postgres error codes for a missing schema or table: no data load has run yet.
 const NO_DATA_CODES = new Set(["3F000", "42P01"]);
 
-export function buildApp({ pool, logger = false }: AppOptions): FastifyInstance {
+export function buildApp({ pool, logger = false, internalToken }: AppOptions): FastifyInstance {
   // Per-request log lines stay off: requests carry users' positions, and nothing about
   // them should end up in logs.
   const app = Fastify({
@@ -55,6 +58,8 @@ export function buildApp({ pool, logger = false }: AppOptions): FastifyInstance 
       throw error;
     }
   });
+
+  if (internalToken) registerInternalRoutes(app, pool, internalToken);
 
   return app;
 }

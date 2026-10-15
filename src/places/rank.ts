@@ -24,6 +24,8 @@ export interface Suggestion {
   lat: number;
   lng: number;
   distance: number;
+  // Check-ins under any of the place's IDs.
+  checkins: { total: number; last30d: number };
 }
 
 // Records closer than this, with near-identical names and compatible kinds, are taken to
@@ -105,15 +107,22 @@ export function mergeCandidates(candidates: Candidate[]): Suggestion[] {
       lat: main.lat,
       lng: main.lng,
       distance: Math.min(...members.map((m) => m.distance)),
+      checkins: { total: 0, last30d: 0 },
     };
   });
 }
 
-// Lower is better: distance, discounted for kinds of places people pick and for places
-// that several sources agree on.
+// How much check-ins lift a place: recent ones count double. 10 check-ins in the last
+// month (and 10 overall) make a place rank as if it were ~2.8× closer.
+export function popularity(checkins: { total: number; last30d: number }): number {
+  return 1 + Math.log1p(checkins.last30d) / 2 + Math.log1p(checkins.total) / 4;
+}
+
+// Lower is better: distance, discounted for kinds of places people pick, for places that
+// several sources agree on, and for places people check into.
 export function score(s: Suggestion): number {
   const sources = 1 + s.sameAs.length;
-  return (s.distance + 10) / (GROUP_WEIGHT[s.group] * (1 + 0.25 * (sources - 1)));
+  return (s.distance + 10) / (GROUP_WEIGHT[s.group] * (1 + 0.25 * (sources - 1)) * popularity(s.checkins));
 }
 
 export function rankSuggestions(suggestions: Suggestion[]): Suggestion[] {
