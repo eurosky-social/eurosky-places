@@ -1,0 +1,28 @@
+{
+  "name": "eurosky-places",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Place suggestions for check-ins and photo locations: nearby venues plus street, district, city and country.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.2"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "migrate": "node src/migrate.ts",
+    "load": "node src/load/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
+    "ci": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@duckdb/node-api": "1.5.6-r.1",
+    "fastify": "^5.12.7",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "typescript": "^7.0.2"
+  }
+}

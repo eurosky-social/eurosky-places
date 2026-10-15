@@ -1,0 +1,21 @@
+services:
+  db:
+    # Multi-arch build by the postgis/docker-postgis maintainer; the official
+    # postgis/postgis image has no arm64 variant (Apple Silicon).
+    image: imresamu/postgis:17-3.5
+    environment:
+      POSTGRES_USER: places
+      POSTGRES_PASSWORD: places
+      POSTGRES_DB: places
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U places -d places"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  db:

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: imresamu/postgis:17-3.5
+        env:
+          POSTGRES_USER: places
+          POSTGRES_PASSWORD: places
+          POSTGRES_DB: places
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U places -d places"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      DATABASE_URL_TEST: postgres://places:places@127.0.0.1:5433/places_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run ci
