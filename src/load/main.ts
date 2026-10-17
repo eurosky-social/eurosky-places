@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { duckdbSettings, huggingFaceToken, loadConfig } from "../config.ts";
+import { duckdbSettings, huggingFaceToken, loadConfig, osm2pgsqlCacheMb } from "../config.ts";
 import { createPool } from "../db.ts";
 import { reattachOrphans } from "../live.ts";
 import { migrate } from "../migrate.ts";
@@ -16,7 +16,9 @@ const USAGE = `Usage: npm run load -- (--bbox xmin,ymin,xmax,ymax | --worldwide)
                     needs --osm with the planet file
   --osm             OpenStreetMap file to import with osm2pgsql (optional with --bbox),
                     e.g. https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf
-  --osm-flat-nodes  file for osm2pgsql's node positions; use it for the planet (~100 GB)
+  --osm-flat-nodes  file for osm2pgsql's node positions instead of memory. Rarely useful: the
+                    input is filtered with osmium first, and OSM2PGSQL_CACHE_MB (a few GB)
+                    holds the filtered planet's nodes
   --wikimedia       Wikipedia importance file, path or URL (default: Nominatim's, ~320 MB)
   --overture        Overture release, e.g. 2026-09-23.1 (default: newest complete)
   --foursquare      Foursquare release, e.g. 2026-09-15 (default: newest complete)`;
@@ -83,7 +85,14 @@ async function main(): Promise<void> {
     log(`extracted ${JSON.stringify(extracted)}`);
 
     if (values.osm) {
-      await importOsm({ databaseUrl: config.databaseUrl, file: values.osm, flatNodes: values["osm-flat-nodes"], log });
+      await importOsm({
+        databaseUrl: config.databaseUrl,
+        file: values.osm,
+        cacheMb: osm2pgsqlCacheMb(),
+        flatNodes: values["osm-flat-nodes"],
+        workDirectory: duckdb.tempDirectory,
+        log,
+      });
     } else {
       log("no --osm: this release has no OpenStreetMap places or streets");
     }
