@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -25,6 +25,7 @@ let pool: Pool;
 let dir: string;
 let paths: SourcePaths;
 let importanceFile: string;
+let workDir: string;
 
 async function writeFixtures(target: string): Promise<SourcePaths> {
   const instance = await DuckDBInstance.create(":memory:");
@@ -115,6 +116,7 @@ async function load(sources: Record<string, string>) {
     paths,
     foursquareCutoff: "2024-09-15",
     bbox: BERLIN,
+    workDirectory: workDir,
   });
   await extractImportance({ databaseUrl: TEST_DATABASE_URL, source: importanceFile });
   const counts = await buildReference(pool);
@@ -127,6 +129,8 @@ before(async () => {
   dir = await mkdtemp(join(tmpdir(), "eurosky-places-"));
   paths = await writeFixtures(dir);
   importanceFile = await writeImportance(dir);
+  workDir = join(dir, "work");
+  await mkdir(workDir);
 });
 
 after(async () => {
@@ -156,6 +160,8 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
   // Live data is not touched by a load.
   const live = await pool.query("SELECT count(*)::int AS n FROM live.checkins");
   assert.equal(live.rows[0].n, 1);
+  // The local copies the extraction goes through are gone.
+  assert.deepEqual(await readdir(workDir), []);
 });
 
 test("large boundary outlines are cut into pieces that still answer point lookups", async () => {
@@ -234,9 +240,9 @@ test("the loader's DuckDB takes its memory limit and spill directory from the se
   const duck = await openDuckDB(TEST_DATABASE_URL, undefined, { memoryLimit: "1GiB", tempDirectory: spill });
   try {
     const reader = await duck.con.runAndReadAll(
-      "SELECT current_setting('memory_limit') AS m, current_setting('temp_directory') AS t",
+      "SELECT current_setting('memory_limit'), current_setting('temp_directory'), current_setting('preserve_insertion_order')",
     );
-    assert.deepEqual(reader.getRows(), [["1.0 GiB", spill]]);
+    assert.deepEqual(reader.getRows(), [["1.0 GiB", spill, false]]);
   } finally {
     duck.close();
   }

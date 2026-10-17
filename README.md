@@ -37,7 +37,10 @@ npm start                          # http://127.0.0.1:3000/health
 ```
 
 `npm run load` reads the newest complete Overture and Foursquare releases straight from
-where they are published (S3 and Hugging Face) and keeps only rows inside `--bbox`. The
+where they are published (S3 and Hugging Face) and keeps only rows inside `--bbox`. Each
+source goes through a local Parquet copy on its way into Postgres: writing that file uses
+every thread, while writing into Postgres directly made DuckDB read one remote request at
+a time (~13× slower on the production host). The
 Foursquare dataset is gated: the load needs `HF_TOKEN` (or `~/.huggingface/token`) from a
 Hugging Face account that accepted its terms. A worldwide load needs `--worldwide`
 explicitly and belongs on the production host, not a laptop (~25 GB of downloads plus the

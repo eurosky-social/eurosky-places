@@ -77,6 +77,7 @@ async function main(): Promise<void> {
       bbox,
       huggingFaceToken: token,
       duckdb,
+      workDirectory: duckdb.tempDirectory,
       log,
     });
     log(`extracted ${JSON.stringify(extracted)}`);
