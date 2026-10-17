@@ -25,7 +25,8 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 
 ## Local development
 
-Needs Node 24, Docker and osm2pgsql (`brew install osm2pgsql`, `apt install osm2pgsql`).
+Needs Node 24, Docker, osm2pgsql and osmium (`brew install osm2pgsql osmium-tool`,
+`apt install osm2pgsql osmium-tool`).
 
 ```sh
 npm install
@@ -44,11 +45,16 @@ a time (~13× slower on the production host). The
 Foursquare dataset is gated: the load needs `HF_TOKEN` (or `~/.huggingface/token`) from a
 Hugging Face account that accepted its terms. A worldwide load needs `--worldwide`
 explicitly and belongs on the production host, not a laptop (~25 GB of downloads plus the
-88 GB OpenStreetMap planet file, which it needs via `--osm`; pass `--osm-flat-nodes <file>`
-so osm2pgsql keeps node positions on disk; cap DuckDB with `DUCKDB_MEMORY_LIMIT` and
+88 GB OpenStreetMap planet file, which it needs via `--osm`; set `OSM2PGSQL_CACHE_MB` to a
+few GB so osm2pgsql keeps the node positions in memory; cap DuckDB with `DUCKDB_MEMORY_LIMIT` and
 `DUCKDB_TEMP_DIRECTORY` there, since Postgres shares the machine). A load drops the
 previous release's rollback copy before it starts building, so two copies at most are on
-disk at once. `--osm` is optional for `--bbox` loads. Every
+disk at once. `--osm` is optional for `--bbox` loads. The OpenStreetMap file is filtered
+with osmium first, down to the named objects with a key the import style reads (and the
+nodes and members they need): that is all the style keeps, and it leaves out most of the
+planet. Unfiltered, osm2pgsql needed ~100 GB of node positions on disk and read them
+back at random for every way, ~12,000 ways/s on the production host (a day for the
+planet's ways). Every
 load also streams the Wikipedia importance file from nominatim.org (~320 MB, keeps only
 the Wikidata IDs it needs); `--wikimedia <path>` uses a local copy instead.
 

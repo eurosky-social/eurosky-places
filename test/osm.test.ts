@@ -1,17 +1,19 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import type { Pool } from "../src/db.ts";
-import { importOsm } from "../src/load/osm.ts";
+import { importOsm, OSM_FILTER_KEYS, OSM_STYLE } from "../src/load/osm.ts";
 import { buildReference, prepareStaging, swapReference } from "../src/load/reference.ts";
 import { categoryGroup } from "../src/places/categories.ts";
 import { buildApp } from "../src/server.ts";
 import { freshDatabase, TEST_DATABASE_URL } from "./helpers/db.ts";
 
 const FIXTURE = fileURLToPath(new URL("./fixtures/neukoelln-mini.osm", import.meta.url));
-const HAVE_OSM2PGSQL = spawnSync(process.env.OSM2PGSQL ?? "osm2pgsql", ["--version"]).status === 0;
-const skip = HAVE_OSM2PGSQL ? false : "osm2pgsql is not installed";
+const installed = (binary: string) => spawnSync(binary, ["--version"]).status === 0;
+const missing = [process.env.OSM2PGSQL ?? "osm2pgsql", process.env.OSMIUM ?? "osmium"].filter((b) => !installed(b));
+const skip = missing.length ? `not installed: ${missing.join(", ")}` : false;
 const osm = (type: string, id: number) => `urn:atgeo:openstreetmap.org:${type}:${id}`;
 
 let pool: Pool;
@@ -75,6 +77,36 @@ test("osm2pgsql imports named places and streets, and skips the rest", { skip },
 
   const streets = await pool.query("SELECT name FROM ref.streets");
   assert.deepEqual(streets.rows, [{ name: "Weserstraße" }]);
+});
+
+test("the osmium filter keeps exactly what the style keeps", { skip }, async () => {
+  const snapshot = async () => ({
+    places: (
+      await pool.query(
+        `SELECT osm_type, osm_id, name, category, wikidata, names, ST_AsText(geom) AS geom
+         FROM ref_next.stage_osm_places ORDER BY osm_type, osm_id`,
+      )
+    ).rows,
+    streets: (await pool.query("SELECT osm_id, name, ST_AsText(geom) AS geom FROM ref_next.stage_osm_streets ORDER BY osm_id")).rows,
+  });
+  await prepareStaging(pool);
+  await importOsm({ databaseUrl: TEST_DATABASE_URL, file: FIXTURE, filter: false });
+  const unfiltered = await snapshot();
+  await prepareStaging(pool);
+  await importOsm({ databaseUrl: TEST_DATABASE_URL, file: FIXTURE });
+  assert.deepEqual(await snapshot(), unfiltered);
+  assert.ok(unfiltered.places.some((p) => p.osm_type === "R"), "including a multipolygon built from its member ways");
+});
+
+// The filter is lossless only because of two things the style does: it considers no
+// key outside OSM_FILTER_KEYS, and it keeps nothing without a name.
+test("the osmium filter covers every key the style reads, and the style needs names", () => {
+  const style = readFileSync(OSM_STYLE, "utf8");
+  const keys = [...style.matchAll(/\{ key = '([a-z_]+)'/g)].map((m) => m[1]!);
+  assert.ok(keys.length > 10, "found the style's KEYS");
+  assert.deepEqual([...keys, "highway"].sort(), [...OSM_FILTER_KEYS].sort());
+  assert.match(style, /if not tags\.name or geom == nil/, "places need a name");
+  assert.match(style, /if tags\.name and STREET_TYPES\[tags\.highway\]/, "streets need a name");
 });
 
 test("without address data the street comes from OpenStreetMap", { skip }, async () => {
