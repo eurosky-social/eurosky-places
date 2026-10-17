@@ -240,9 +240,10 @@ test("the loader's DuckDB takes its memory limit and spill directory from the se
   const duck = await openDuckDB(TEST_DATABASE_URL, undefined, { memoryLimit: "1GiB", tempDirectory: spill });
   try {
     const reader = await duck.con.runAndReadAll(
-      "SELECT current_setting('memory_limit'), current_setting('temp_directory'), current_setting('preserve_insertion_order')",
+      `SELECT current_setting('memory_limit'), current_setting('temp_directory'),
+              current_setting('preserve_insertion_order'), current_setting('http_retries')::INTEGER`,
     );
-    assert.deepEqual(reader.getRows(), [["1.0 GiB", spill, false]]);
+    assert.deepEqual(reader.getRows(), [["1.0 GiB", spill, false, 8]]);
   } finally {
     duck.close();
   }

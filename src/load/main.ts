@@ -1,4 +1,6 @@
-import { basename } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 import { duckdbSettings, huggingFaceToken, loadConfig, osm2pgsqlCacheMb } from "../config.ts";
 import { createPool } from "../db.ts";
@@ -7,7 +9,13 @@ import { migrate } from "../migrate.ts";
 import { extractImportance, extractToStaging, foursquareCutoff, WIKIMEDIA_IMPORTANCE_URL } from "./extract.ts";
 import { importOsm } from "./osm.ts";
 import { buildReference, dropRollbackCopy, prepareStaging, swapReference, type BBox } from "./reference.ts";
-import { foursquarePath, latestFoursquareRelease, latestOvertureRelease, overturePath } from "./releases.ts";
+import {
+  downloadFoursquare,
+  foursquarePath,
+  latestFoursquareRelease,
+  latestOvertureRelease,
+  overturePath,
+} from "./releases.ts";
 
 const USAGE = `Usage: npm run load -- (--bbox xmin,ymin,xmax,ymax | --worldwide) [--osm <file.osm.pbf>] [options]
 
@@ -66,22 +74,40 @@ async function main(): Promise<void> {
 
     if (await dropRollbackCopy(pool)) log("dropped the previous release's rollback copy (ref_prev) to make room");
     await prepareStaging(pool);
-    const extracted = await extractToStaging({
-      databaseUrl: config.databaseUrl,
-      paths: {
-        overturePlaces: overturePath(overtureRelease, "places"),
-        overtureDivisions: overturePath(overtureRelease, "divisions"),
-        overtureAreas: overturePath(overtureRelease, "areas"),
-        overtureAddresses: overturePath(overtureRelease, "addresses"),
-        foursquarePlaces: foursquarePath(foursquareRelease),
-      },
-      foursquareCutoff: foursquareCutoff(foursquareRelease),
-      bbox,
-      huggingFaceToken: token,
-      duckdb,
-      workDirectory: duckdb.tempDirectory,
-      log,
-    });
+
+    // A worldwide load reads every Foursquare file in full, so it downloads them whole
+    // first: Hugging Face rate-limits the small range reads DuckDB would make instead. An
+    // area load reads only a few parts of each file and stays remote.
+    let foursquarePlaces = foursquarePath(foursquareRelease);
+    const foursquareDir = bbox ? undefined : await mkdtemp(join(duckdb.tempDirectory ?? tmpdir(), "foursquare-"));
+    let extracted: Record<string, number>;
+    try {
+      if (foursquareDir) {
+        const started = Date.now();
+        const download = await downloadFoursquare({ release: foursquareRelease, token, dir: foursquareDir });
+        const gb = (download.bytes / 1e9).toFixed(1);
+        log(`Foursquare ${foursquareRelease}: downloaded ${download.files} files, ${gb} GB in ${((Date.now() - started) / 1000).toFixed(0)} s`);
+        foursquarePlaces = download.glob;
+      }
+      extracted = await extractToStaging({
+        databaseUrl: config.databaseUrl,
+        paths: {
+          overturePlaces: overturePath(overtureRelease, "places"),
+          overtureDivisions: overturePath(overtureRelease, "divisions"),
+          overtureAreas: overturePath(overtureRelease, "areas"),
+          overtureAddresses: overturePath(overtureRelease, "addresses"),
+          foursquarePlaces,
+        },
+        foursquareCutoff: foursquareCutoff(foursquareRelease),
+        bbox,
+        huggingFaceToken: token,
+        duckdb,
+        workDirectory: duckdb.tempDirectory,
+        log,
+      });
+    } finally {
+      if (foursquareDir) await rm(foursquareDir, { recursive: true, force: true });
+    }
     log(`extracted ${JSON.stringify(extracted)}`);
 
     if (values.osm) {

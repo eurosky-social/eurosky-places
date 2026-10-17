@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { foursquareCutoff } from "../src/load/extract.ts";
 import {
   compareOvertureReleases,
+  downloadFoursquare,
   latestFoursquareRelease,
   latestOvertureRelease,
   parseFoursquareReleases,
@@ -70,3 +74,77 @@ test("latestFoursquareRelease skips a release without place files", async () => 
 test("foursquareCutoff is two years before the release", () => {
   assert.equal(foursquareCutoff("2026-09-15"), "2024-09-15");
 });
+
+const RELEASE_DIR = "release/dt=2026-10-15/places/parquet";
+
+// A Hugging Face stand-in: the file listing, and each file's body (or a function of the
+// attempt number returning a Response), recording every request.
+function fakeHub(files: Record<string, string | ((attempt: number) => Response)>) {
+  const requests: Array<{ url: string; auth?: string }> = [];
+  const attempts = new Map<string, number>();
+  const fetchFn: FetchFn = async (url, init) => {
+    requests.push({ url, auth: init?.headers?.Authorization });
+    if (url.endsWith(`/tree/main/${RELEASE_DIR}`)) {
+      return Response.json(
+        Object.entries(files).map(([name, body]) => ({
+          type: "file",
+          path: `${RELEASE_DIR}/${name}`,
+          lfs: { size: typeof body === "string" ? body.length : 3 },
+        })),
+      );
+    }
+    const name = Object.keys(files).find((n) => url.endsWith(`/resolve/main/${RELEASE_DIR}/${n}`));
+    if (!name) return new Response("not found", { status: 404 });
+    const attempt = (attempts.get(name) ?? 0) + 1;
+    attempts.set(name, attempt);
+    const body = files[name]!;
+    return typeof body === "string" ? new Response(body) : body(attempt);
+  };
+  return { fetchFn, requests, attempts };
+}
+
+async function inTempDir(fn: (dir: string) => Promise<void>) {
+  const dir = await mkdtemp(join(tmpdir(), "foursquare-"));
+  try {
+    await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("downloadFoursquare fetches each place file whole, one request per file", () =>
+  inTempDir(async (dir) => {
+    const hub = fakeHub({ "places_000000.parquet": "abc", "places_000001.parquet": "de" });
+    const result = await downloadFoursquare({ release: "2026-10-15", token: "secret", dir, fetchFn: hub.fetchFn });
+    assert.deepEqual(result, { glob: join(dir, "*.parquet"), files: 2, bytes: 5 });
+    assert.deepEqual((await readdir(dir)).sort(), ["places_000000.parquet", "places_000001.parquet"]);
+    assert.equal(await readFile(join(dir, "places_000000.parquet"), "utf8"), "abc");
+    assert.equal(hub.requests.filter((r) => r.url.includes("/resolve/main/")).length, 2);
+    assert.ok(hub.requests.every((r) => r.auth === "Bearer secret"));
+  }));
+
+test("downloadFoursquare waits out rate limits and server errors, but not a refusal", () =>
+  inTempDir(async (dir) => {
+    const flaky = fakeHub({
+      "places_000000.parquet": (attempt) =>
+        attempt === 1 ? new Response("slow down", { status: 429 })
+        : attempt === 2 ? new Response("oops", { status: 503 })
+        : new Response("abc"),
+    });
+    await downloadFoursquare({ release: "2026-10-15", token: "t", dir, fetchFn: flaky.fetchFn, retryDelayMs: 1 });
+    assert.equal(flaky.attempts.get("places_000000.parquet"), 3);
+
+    const refused = fakeHub({ "places_000000.parquet": () => new Response("no", { status: 403 }) });
+    await assert.rejects(
+      downloadFoursquare({ release: "2026-10-15", token: "t", dir, fetchFn: refused.fetchFn, retryDelayMs: 1 }),
+      /HTTP 403/,
+    );
+    assert.equal(refused.attempts.get("places_000000.parquet"), 1);
+
+    const short = fakeHub({ "places_000000.parquet": () => new Response("ab") });
+    await assert.rejects(
+      downloadFoursquare({ release: "2026-10-15", token: "t", dir, fetchFn: short.fetchFn, retryDelayMs: 1 }),
+      /2 bytes, expected 3/,
+    );
+    assert.equal(short.attempts.get("places_000000.parquet"), 6);
+  }));
