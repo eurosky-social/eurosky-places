@@ -11,6 +11,7 @@
     "start": "node src/main.ts",
     "migrate": "node src/migrate.ts",
     "load": "node src/load/main.ts",
+    "bench": "node scripts/bench.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "ci": "npm run typecheck && npm test"

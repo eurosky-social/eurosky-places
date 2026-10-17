@@ -113,6 +113,7 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
     { origin: "urn:atgeo:overturemaps.org:place:ov-open", name: "The Coffee Ape", category: "coffee_shop", category_group: "food_drink" },
   ]);
   assert.equal(counts.places, 4);
+  assert.equal(counts.divisions, 2);
   assert.equal(counts.addresses, 1);
   // Live data is not touched by a load.
   const live = await pool.query("SELECT total FROM live.checkin_counts");
@@ -120,20 +121,36 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
 });
 
 test("large boundary outlines are cut into pieces that still answer point lookups", async () => {
-  const pieces = await pool.query("SELECT name, count(*)::int AS n, max(ST_NPoints(geom)) AS max_points FROM ref.areas GROUP BY name ORDER BY name");
+  const pieces = await pool.query(
+    `SELECT d.name, count(*)::int AS n, max(ST_NPoints(a.geom)) AS max_points
+     FROM ref.areas a JOIN ref.divisions d USING (origin) GROUP BY d.name ORDER BY d.name`,
+  );
   const byName = Object.fromEntries(pieces.rows.map((r) => [r.name, r]));
   assert.ok(byName["Testland"].n > 1, "the 1200-point outline should be split");
   assert.ok(byName["Testland"].max_points <= 256 + 1);
   assert.equal(byName["Testland waters"], undefined, "maritime areas are skipped");
 
   const hermannplatz = await pool.query(
-    `SELECT DISTINCT origin, subtype, name FROM ref.areas
-     WHERE ST_Covers(geom, ST_SetSRID(ST_MakePoint(13.4245, 52.4867), 4326)) ORDER BY subtype`,
+    `SELECT DISTINCT d.origin, d.subtype, d.name FROM ref.areas a JOIN ref.divisions d USING (origin)
+     WHERE ST_Covers(a.geom, ST_SetSRID(ST_MakePoint(13.4245, 52.4867), 4326)) ORDER BY d.subtype`,
   );
   assert.deepEqual(hermannplatz.rows, [
     { origin: "urn:atgeo:overturemaps.org:division:div-country", subtype: "country", name: "Testland" },
     { origin: "urn:atgeo:overturemaps.org:division:div-district", subtype: "macrohood", name: "Neukölln" },
   ]);
+});
+
+test("each area gets its size and a point inside it", async () => {
+  const { rows } = await pool.query(
+    `SELECT name, area_m2, ST_Covers(s.geom, d.point::geometry) AS inside
+     FROM ref.divisions d
+     CROSS JOIN LATERAL (SELECT ST_Union(geom) AS geom FROM ref.areas a WHERE a.origin = d.origin) s
+     ORDER BY area_m2`,
+  );
+  assert.deepEqual(rows.map((r) => r.name), ["Neukölln", "Testland"]);
+  assert.ok(rows.every((r) => r.inside), "every representative point lies inside its area");
+  // ~0.05° × 0.02° near Berlin is roughly 3.4 km × 2.2 km.
+  assert.ok(rows[0].area_m2 > 6e6 && rows[0].area_m2 < 9e6);
 });
 
 test("a second load keeps the previous one for rollback", async () => {

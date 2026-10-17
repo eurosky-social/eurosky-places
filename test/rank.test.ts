@@ -1,0 +1,112 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { isLeadingWords, nameSimilarity, normalizeName, similarEnough } from "../src/places/names.ts";
+import { mergeCandidates, rankSuggestions, type Candidate } from "../src/places/rank.ts";
+import { collapseAreas, type Area } from "../src/suggest.ts";
+
+const base = { lat: 52.4867, lng: 13.4245, category: null };
+const fsq = (id: string, name: string, group: Candidate["group"], distance: number, north = 0): Candidate => ({
+  ...base,
+  origin: `urn:atgeo:foursquare.com:place:${id}`,
+  dataset: "foursquare.com",
+  name,
+  group,
+  distance,
+  lat: base.lat + north / 111_320,
+});
+const ov = (id: string, name: string, group: Candidate["group"], distance: number, north = 0): Candidate => ({
+  ...fsq(id, name, group, distance, north),
+  origin: `urn:atgeo:overturemaps.org:place:${id}`,
+  dataset: "overturemaps.org",
+});
+
+test("normalizeName ignores accents, case and punctuation", () => {
+  assert.equal(normalizeName("Café  Kreuzberg!"), "cafe kreuzberg");
+  assert.equal(normalizeName("McDonald's"), "mcdonald s");
+  assert.equal(normalizeName("Ostertor-Viertel"), "ostertor viertel");
+});
+
+test("nameSimilarity is one minus the edit distance over the longer name", () => {
+  assert.equal(nameSimilarity("abc", "abc"), 1);
+  assert.equal(nameSimilarity("u hermannplatz", "hermannplatz"), 1 - 2 / 14);
+  assert.equal(nameSimilarity("", ""), 1);
+});
+
+test("similarEnough agrees with nameSimilarity on every pair", () => {
+  const names = [
+    "mcdonald s", "mcdonalds", "cafe kreuzberg", "cafe kreuzberk", "u hermannplatz", "hermannplatz",
+    "hugendubel", "hugendubel berlin", "zapfhahn", "zapfhan", "spati", "spaeti", "", "a",
+    "huxleys neue welt", "huxley s neue welt", "the coffee ape berlin", "the coffee ape",
+  ];
+  for (const a of names) {
+    for (const b of names) {
+      for (const min of [0.8, 0.9, 0.95]) {
+        assert.equal(similarEnough(a, b, min), nameSimilarity(a, b) >= min, `${a} / ${b} @ ${min}`);
+      }
+    }
+  }
+});
+
+test("a name that is the leading words of another merges only when close and of the same kind", () => {
+  const brand = fsq("h", "Hugendubel", "shopping", 0);
+  const branch = (metres: number) => ov("h", "Hugendubel Berlin Hermannplatz im Karstadt", "shopping", metres, metres);
+  assert.equal(mergeCandidates([brand, branch(12)]).length, 1);
+  assert.equal(mergeCandidates([brand, branch(60)]).length, 2);
+  assert.equal(
+    mergeCandidates([fsq("k", "Karstadt", "shopping", 0), ov("r", "Karstadt Reisebüro", "services", 5, 5)]).length,
+    2,
+  );
+  assert.equal(isLeadingWords("hugen", "hugendubel berlin"), false, "whole words only");
+  assert.equal(isLeadingWords("abc", "abc def"), false, "too short to be a brand");
+});
+
+test("the same place in two sources becomes one suggestion with the Foursquare ID", () => {
+  const merged = mergeCandidates([
+    ov("mc", "McDonald's", "food_drink", 37, 37),
+    fsq("mc", "McDonald's", "food_drink", 8, 8),
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]!.origin, "urn:atgeo:foursquare.com:place:mc");
+  assert.deepEqual(merged[0]!.sameAs, ["urn:atgeo:overturemaps.org:place:mc"]);
+  assert.equal(merged[0]!.distance, 8);
+});
+
+test("places are not merged across a large distance, different kinds, or within one source", () => {
+  assert.equal(mergeCandidates([fsq("a", "Späti", "shopping", 0), ov("b", "Späti", "shopping", 100, 100)]).length, 2);
+  assert.equal(mergeCandidates([fsq("a", "Hermannplatz", "transit", 0), ov("b", "Hermannplatz", "sights", 0)]).length, 2);
+  assert.equal(mergeCandidates([fsq("a", "Späti", "shopping", 0), fsq("b", "Späti", "shopping", 20, 20)]).length, 2);
+});
+
+test("a kind marked 'other' can merge with any kind", () => {
+  const merged = mergeCandidates([fsq("a", "Zapfhahn", "food_drink", 0), ov("b", "Zapfhahn", "other", 10, 10)]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0]!.group, "food_drink");
+});
+
+test("ranking prefers places people pick over closer services", () => {
+  const ranked = rankSuggestions(
+    mergeCandidates([
+      ov("atm", "ING-Geldautomat", "services", 5),
+      fsq("cafe", "The Coffee Ape", "food_drink", 30, 30),
+    ]),
+  );
+  assert.deepEqual(ranked.map((s) => s.name), ["The Coffee Ape", "ING-Geldautomat"]);
+});
+
+test("collapseAreas keeps the smallest of a run of same-named areas", () => {
+  const area = (name: string, subtype: string): Area => ({ origin: `urn:x:${subtype}`, name, subtype, country: "FR", lat: 0, lng: 0 });
+  const collapsed = collapseAreas([
+    area("Quartier des Archives", "neighborhood"),
+    area("Paris", "locality"),
+    area("Paris", "localadmin"),
+    area("Paris", "county"),
+    area("Île-de-France", "region"),
+    area("France", "country"),
+  ]);
+  assert.deepEqual(collapsed.map((a) => `${a.name}/${a.subtype}`), [
+    "Quartier des Archives/neighborhood",
+    "Paris/locality",
+    "Île-de-France/region",
+    "France/country",
+  ]);
+});
