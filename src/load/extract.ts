@@ -173,6 +173,9 @@ export async function openDuckDB(databaseUrl: string, huggingFaceToken?: string,
   const con = await instance.connect();
   await con.run("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; INSTALL postgres; LOAD postgres");
   await con.run("SET s3_region = 'us-west-2'");
+  // A worldwide extraction makes tens of thousands of requests over most of an hour;
+  // ride out a throttled or failing one for up to ~2 minutes instead of losing the load.
+  await con.run("SET http_retries = 8; SET http_retry_wait_ms = 500; SET http_retry_backoff = 2");
   if (huggingFaceToken) await con.run(`CREATE SECRET hf (TYPE huggingface, TOKEN ${lit(huggingFaceToken)})`);
   await con.run(`ATTACH ${lit(databaseUrl)} AS pg (TYPE postgres)`);
   await con.run(categoryGroupMacroSql());

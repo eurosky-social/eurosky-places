@@ -1,3 +1,10 @@
+import { createWriteStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { basename, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebReadableStream } from "node:stream/web";
+
 // Finds the newest *complete* release of each source. A release can appear in a listing
 // before all of its files are uploaded, so each candidate is checked for the parts we load.
 
@@ -74,4 +81,87 @@ export async function latestFoursquareRelease(token: string, fetchFn: FetchFn = 
     if (files.ok && ((await files.json()) as unknown[]).length > 0) return release;
   }
   throw new Error("no complete Foursquare release found");
+}
+
+const FOURSQUARE_FILES = "https://huggingface.co/datasets/foursquare/fsq-os-places/resolve/main";
+
+interface TreeEntry {
+  path: string;
+  type: string;
+  size?: number;
+  lfs?: { size: number };
+}
+
+export interface DownloadOptions {
+  release: string;
+  token: string;
+  dir: string;
+  fetchFn?: FetchFn;
+  concurrency?: number;
+  // First wait before a retry; it doubles with every attempt (tests make it tiny).
+  retryDelayMs?: number;
+}
+
+// Downloads one release's Foursquare place files whole into opts.dir. A worldwide load
+// reads every file in full anyway, and DuckDB reading them remotely does so in many small
+// range requests: Hugging Face allows 5,000 per 5 minutes ("resolvers", fixed window), and
+// the parallel extraction ran into HTTP 429 on the production host. Whole files are one
+// request each (~100 files, ~12 GB).
+export async function downloadFoursquare(opts: DownloadOptions): Promise<{ glob: string; files: number; bytes: number }> {
+  const fetchFn = opts.fetchFn ?? fetch;
+  const headers = { Authorization: `Bearer ${opts.token}` };
+  const listing = await fetchFn(`${FOURSQUARE_TREE}/release/dt=${opts.release}/places/parquet`, { headers });
+  if (!listing.ok) throw new Error(`Foursquare file listing failed: ${listing.status}`);
+  const files = ((await listing.json()) as TreeEntry[]).filter((e) => e.type === "file" && e.path.endsWith(".parquet"));
+  if (files.length === 0) throw new Error(`Foursquare ${opts.release} has no place files`);
+
+  let next = 0;
+  const worker = async () => {
+    while (next < files.length) {
+      const file = files[next++]!;
+      await downloadFile(fetchFn, `${FOURSQUARE_FILES}/${file.path}`, headers, join(opts.dir, basename(file.path)), {
+        size: file.lfs?.size ?? file.size,
+        retryDelayMs: opts.retryDelayMs ?? 5000,
+      });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(opts.concurrency ?? 4, files.length) }, worker));
+  const bytes = files.reduce((n, f) => n + (f.lfs?.size ?? f.size ?? 0), 0);
+  return { glob: join(opts.dir, "*.parquet"), files: files.length, bytes };
+}
+
+const ATTEMPTS = 6;
+
+// Retries what can pass (429, server errors, dropped connections, a short file), honouring
+// Retry-After; refuses at once what cannot (401, 403, 404).
+async function downloadFile(
+  fetchFn: FetchFn,
+  url: string,
+  headers: Record<string, string>,
+  dest: string,
+  opts: { size?: number; retryDelayMs: number },
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    let wait = opts.retryDelayMs * 2 ** (attempt - 1);
+    try {
+      const res = await fetchFn(url, { headers });
+      if (!res.ok || !res.body) {
+        const retryable = res.status === 408 || res.status === 429 || res.status >= 500;
+        const error = new Error(`download of ${url} failed: HTTP ${res.status}`);
+        if (!retryable) throw Object.assign(error, { final: true });
+        const retryAfter = Number(res.headers.get("retry-after"));
+        if (retryAfter > 0) wait = Math.min(retryAfter, 300) * 1000;
+        throw error;
+      }
+      await pipeline(Readable.fromWeb(res.body as WebReadableStream<Uint8Array>), createWriteStream(dest));
+      const actual = (await stat(dest)).size;
+      if (opts.size !== undefined && actual !== opts.size) {
+        throw new Error(`download of ${url} is ${actual} bytes, expected ${opts.size}`);
+      }
+      return;
+    } catch (error) {
+      if ((error as { final?: boolean }).final || attempt >= ATTEMPTS) throw error;
+      await new Promise((resolve) => setTimeout(resolve, wait));
+    }
+  }
 }
