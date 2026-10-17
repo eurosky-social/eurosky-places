@@ -14,7 +14,7 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 |---|---|---|
 | Repo, local Postgres/PostGIS, Berlin test data | EUR-477 | done |
 | Monthly worldwide load and swap | EUR-478 | load pipeline works for an area; worldwide run, prewarm and scheduling to do |
-| OpenStreetMap import (osm2pgsql) | EUR-479 | to do |
+| OpenStreetMap import (osm2pgsql) | EUR-479 | done (`--osm`) |
 | Endpoint A: suggestions for a position | EUR-480 | done (`POST /v1/suggestions`) |
 | Endpoint B: cacheable ~1 km squares | EUR-481 | done (`GET /v1/squares/{lat},{lng}`) |
 | Type-ahead | EUR-482 | to do |
@@ -25,13 +25,14 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 
 ## Local development
 
-Needs Node 24 and Docker.
+Needs Node 24, Docker and osm2pgsql (`brew install osm2pgsql`, `apt install osm2pgsql`).
 
 ```sh
 npm install
 docker compose up -d --wait        # Postgres 17 + PostGIS 3.5 on 127.0.0.1:5433
 npm run migrate
-npm run load -- --bbox 13.08,52.33,13.76,52.68   # Berlin, a few minutes
+curl -LO https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf   # ~100 MB
+npm run load -- --bbox 13.08,52.33,13.76,52.68 --osm berlin-latest.osm.pbf  # Berlin, ~10 min
 npm start                          # http://127.0.0.1:3000/health
 ```
 
@@ -39,7 +40,9 @@ npm start                          # http://127.0.0.1:3000/health
 where they are published (S3 and Hugging Face) and keeps only rows inside `--bbox`. The
 Foursquare dataset is gated: the load needs `HF_TOKEN` (or `~/.huggingface/token`) from a
 Hugging Face account that accepted its terms. A worldwide load needs `--worldwide`
-explicitly and belongs on the production host, not a laptop (~25 GB of downloads).
+explicitly and belongs on the production host, not a laptop (~25 GB of downloads plus the
+88 GB OpenStreetMap planet file, which it needs via `--osm`; pass `--osm-flat-nodes <file>`
+so osm2pgsql keeps node positions on disk). `--osm` is optional for `--bbox` loads.
 
 Configuration is by environment variable; see [.env.example](.env.example).
 

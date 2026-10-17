@@ -33,7 +33,7 @@ Events are out of scope; they are handled by a separate component.
 | Overture places (CDLA-Permissive 2.0) | venues | open or unknown status, confidence ≥ 0.5, confirmed by a source other than the BrightQuery company registry |
 | Overture divisions (ODbL) | district … country outlines | land only; outlines cut into ≤ 256-point pieces |
 | Overture addresses | street level | named street |
-| OpenStreetMap (ODbL), EUR-479 | venues, sights, parks, named streets | named, in categories people check into or photograph |
+| OpenStreetMap (ODbL), EUR-479 | venues, sights, parks, named streets | named, in categories people check into or photograph (see `src/load/osm/places.lua`) |
 
 Why all three place sources (measured 2026-09/10 in Berlin Mitte, central Madrid and
 rural Tyrol, by name + distance matching):
@@ -111,6 +111,30 @@ what an app publishes when the user picks that area.
 
 The street comes from Overture addresses: the street of the nearest address within 100 m,
 with the middle of that street's addresses within 250 m as its point.
+
+## OpenStreetMap (EUR-479)
+
+osm2pgsql reads the OSM file (an extract for development, the planet in production) with
+our flex style `src/load/osm/places.lua` and writes two staging tables into `ref_next`:
+
+- places: named objects with one of a list of tags, in order of precedence (`amenity`,
+  `tourism`, `shop`, `leisure`, `historic`, stations, airports, natural features, landmarks
+  such as towers and bridges, squares and islands, offices, crafts, healthcare), minus
+  things nobody checks into (parking, benches, ATMs, toilets, playgrounds, …). Stolpersteine
+  (`memorial=stolperstein`) are excluded outright: brass stones for individual victims of
+  Nazism, named after the person, ~9,000 in Berlin alone; not a place to check in, and they
+  buried every other sight in the first Berlin load. Ways and
+  multipolygons become their centroid. The category is the tag that matched
+  (`amenity=restaurant`); the group comes from the same rules as for the other sources,
+  here as a Postgres function generated from `src/places/categories.ts`. The Wikidata tag
+  is kept (prominence for type-ahead), and other names (`name:<lang>`, `alt_name`,
+  `official_name`, …) go into `ref.place_names` for search.
+- streets: named roads (`highway` residential up to trunk, pedestrian, service, …). The
+  street level uses them where there is no address within 100 m: the nearest within 50 m,
+  placed at the middle of that street segment.
+
+Berlin extract (100 MB): osm2pgsql ~21 s, ~75,000 places (8,153 with a Wikidata ID),
+~7,000 other names, ~96,500 street segments.
 
 ## Place identity
 

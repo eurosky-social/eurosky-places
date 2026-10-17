@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- A handful of OpenStreetMap objects around Hermannplatz for test/osm.test.ts: places
+     the style must keep, and ones it must skip. osm2pgsql needs the usual order: all
+     nodes, then ways, then relations. -->
+<osm version="0.6" generator="hand">
+  <node id="1" version="1" lat="52.48690" lon="13.42460">
+    <tag k="amenity" v="restaurant"/>
+    <tag k="name" v="Zur Linde"/>
+    <tag k="name:en" v="The Lime Tree"/>
+    <tag k="wikidata" v="Q123"/>
+  </node>
+  <node id="2" version="1" lat="52.48700" lon="13.42480">
+    <tag k="amenity" v="parking"/>
+    <tag k="name" v="Parkhaus Hermannplatz"/>
+  </node>
+  <node id="3" version="1" lat="52.48710" lon="13.42490">
+    <tag k="amenity" v="cafe"/>
+  </node>
+  <node id="4" version="1" lat="52.48660" lon="13.42430">
+    <tag k="railway" v="station"/>
+    <tag k="name" v="Hermannplatz"/>
+  </node>
+  <node id="5" version="1" lat="52.48650" lon="13.42500">
+    <tag k="historic" v="memorial"/>
+    <tag k="name" v="Denkmal"/>
+    <tag k="wikidata" v="not-a-qid"/>
+  </node>
+  <node id="6" version="1" lat="52.48640" lon="13.42420">
+    <tag k="shop" v="bakery"/>
+    <tag k="name" v="Bäckerei Hermann"/>
+  </node>
+  <node id="7" version="1" lat="52.48630" lon="13.42410">
+    <tag k="amenity" v="atm"/>
+    <tag k="name" v="Geldautomat"/>
+  </node>
+  <node id="8" version="1" lat="52.48620" lon="13.42400">
+    <tag k="tourism" v="information"/>
+    <tag k="name" v="Info"/>
+  </node>
+  <node id="9" version="1" lat="52.48610" lon="13.42390">
+    <tag k="historic" v="memorial"/>
+    <tag k="memorial" v="stolperstein"/>
+    <tag k="name" v="Max Mustermann"/>
+  </node>
+  <!-- corners of the park -->
+  <node id="10" version="1" lat="52.47000" lon="13.44000"/>
+  <node id="11" version="1" lat="52.47000" lon="13.44200"/>
+  <node id="12" version="1" lat="52.47200" lon="13.44200"/>
+  <node id="13" version="1" lat="52.47200" lon="13.44000"/>
+  <!-- ends of the street -->
+  <node id="20" version="1" lat="52.48900" lon="13.43000"/>
+  <node id="21" version="1" lat="52.48800" lon="13.43400"/>
+  <!-- corners of the lake -->
+  <node id="30" version="1" lat="52.51000" lon="13.34000"/>
+  <node id="31" version="1" lat="52.51000" lon="13.34400"/>
+  <node id="32" version="1" lat="52.51200" lon="13.34400"/>
+  <node id="33" version="1" lat="52.51200" lon="13.34000"/>
+
+  <!-- A park drawn as a closed way. -->
+  <way id="100" version="1">
+    <nd ref="10"/><nd ref="11"/><nd ref="12"/><nd ref="13"/><nd ref="10"/>
+    <tag k="leisure" v="park"/>
+    <tag k="name" v="Körnerpark"/>
+    <tag k="alt_name" v="Koernerpark"/>
+  </way>
+  <!-- A residential street, and a footpath that is not a street. -->
+  <way id="200" version="1">
+    <nd ref="20"/><nd ref="21"/>
+    <tag k="highway" v="residential"/>
+    <tag k="name" v="Weserstraße"/>
+  </way>
+  <way id="201" version="1">
+    <nd ref="20"/><nd ref="21"/>
+    <tag k="highway" v="footway"/>
+    <tag k="name" v="Pfad"/>
+  </way>
+  <!-- The outline of the lake below. -->
+  <way id="301" version="1">
+    <nd ref="30"/><nd ref="31"/><nd ref="32"/><nd ref="33"/><nd ref="30"/>
+  </way>
+
+  <!-- A lake drawn as a multipolygon relation. -->
+  <relation id="300" version="1">
+    <member type="way" ref="301" role="outer"/>
+    <tag k="type" v="multipolygon"/>
+    <tag k="natural" v="water"/>
+    <tag k="name" v="Neuer See"/>
+  </relation>
+</osm>

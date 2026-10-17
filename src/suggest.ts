@@ -69,6 +69,16 @@ const AREAS_SQL = `
   )
   ORDER BY d.area_m2`;
 
+// Where there is no address data nearby: the nearest named street from OpenStreetMap,
+// placed at the middle of that street segment rather than at the user.
+const OSM_STREET_SQL = `
+  WITH here AS (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography AS g)
+  SELECT s.name, ST_Y(m.p) AS lat, ST_X(m.p) AS lng
+  FROM ref.streets s, here
+  CROSS JOIN LATERAL (SELECT ST_LineInterpolatePoint(s.geog::geometry, 0.5) AS p) m
+  WHERE ST_DWithin(s.geog, here.g, 50)
+  ORDER BY s.geog <-> here.g LIMIT 1`;
+
 const STREET_SQL = `
   WITH here AS (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography AS g),
   nearest AS (
@@ -142,7 +152,7 @@ export async function suggest(pool: Pool, req: SuggestRequest): Promise<SuggestR
   }));
   const ranked = rankSuggestions(await withLiveData(pool, mergeCandidates(candidates))).slice(0, req.limit);
 
-  const s = street.rows[0];
+  const s = street.rows[0] ?? (await pool.query(OSM_STREET_SQL, point)).rows[0];
   return {
     places: ranked.map((p) => ({ ...p, lat: round6(p.lat), lng: round6(p.lng), distance: Math.round(p.distance) })),
     street: s ? { name: s.name, lat: round6(s.lat), lng: round6(s.lng) } : null,
