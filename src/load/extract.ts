@@ -6,6 +6,7 @@ import type { BBox } from "./reference.ts";
 // Where each source's Parquet files are; a glob, local or remote (s3://, hf://).
 export interface SourcePaths {
   overturePlaces: string;
+  overtureDivisions: string;
   overtureAreas: string;
   overtureAddresses: string;
   foursquarePlaces: string;
@@ -83,6 +84,34 @@ export function overtureAreasSql(source: string, bbox: BBox | null): string {
       AND class = 'land' AND names.primary IS NOT NULL`;
 }
 
+export function overtureDivisionsSql(source: string, bbox: BBox | null): string {
+  return `
+    INSERT INTO pg.ref_next.stage_divisions (division_id, wikidata, population, names)
+    SELECT id, wikidata, population, to_json(names.common)::VARCHAR
+    FROM read_parquet(${lit(source)})
+    WHERE ${bboxFilter(bbox, OVERTURE_BBOX)}`;
+}
+
+// The Nominatim project's Wikipedia importance (https://nominatim.org/data/): one row per
+// article or redirect, 0–1, with the article's Wikidata ID. Only IDs that some staged
+// place or area has are kept, as their highest importance.
+export const WIKIMEDIA_IMPORTANCE_URL = "https://nominatim.org/data/wikimedia-importance.csv.gz";
+
+export function importanceSql(source: string): string {
+  return `
+    INSERT INTO pg.ref_next.stage_importance (wikidata, importance)
+    SELECT wikidata_id, max(importance)
+    FROM read_csv(${lit(source)}, delim = '\t', header = true, quote = '', escape = '',
+                  columns = {'language': 'VARCHAR', 'type': 'VARCHAR', 'title': 'VARCHAR',
+                             'importance': 'DOUBLE', 'wikidata_id': 'VARCHAR'})
+    WHERE wikidata_id IN (
+      SELECT wikidata FROM pg.ref_next.stage_osm_places WHERE wikidata IS NOT NULL
+      UNION SELECT wikidata FROM pg.ref_next.stage_divisions WHERE wikidata IS NOT NULL
+      UNION SELECT wikidata FROM pg.ref_next.stage_places WHERE wikidata IS NOT NULL
+    )
+    GROUP BY wikidata_id`;
+}
+
 export function overtureAddressesSql(source: string, bbox: BBox | null): string {
   return `
     INSERT INTO pg.ref_next.stage_addresses (street, number, postcode, lon, lat)
@@ -117,6 +146,25 @@ async function timed(con: DuckDBConnection, label: string, query: string, log: (
   return rows;
 }
 
+// Wikipedia prominence for the Wikidata IDs in the staging tables. Runs after the
+// OpenStreetMap import, which brings most of the IDs.
+export async function extractImportance(opts: {
+  databaseUrl: string;
+  source: string;
+  log?: (message: string) => void;
+}): Promise<number> {
+  const duck = await openDuckDB(opts.databaseUrl);
+  try {
+    // nominatim.org refuses requests without an identifying User-Agent.
+    await duck.con.run(
+      "CREATE SECRET ua (TYPE http, EXTRA_HTTP_HEADERS MAP {'User-Agent': 'eurosky-places (https://github.com/eurosky-social/eurosky-places)'})",
+    );
+    return await timed(duck.con, "Wikipedia importance", importanceSql(opts.source), opts.log ?? (() => {}));
+  } finally {
+    duck.close();
+  }
+}
+
 // Reads the source Parquet files and writes the filtered rows into ref_next's staging
 // tables (created by prepareStaging).
 export async function extractToStaging(opts: ExtractOptions): Promise<Record<string, number>> {
@@ -133,6 +181,7 @@ export async function extractToStaging(opts: ExtractOptions): Promise<Record<str
         foursquarePlacesSql(paths.foursquarePlaces, opts.foursquareCutoff, bbox),
         log,
       ),
+      divisions: await timed(con, "Overture divisions", overtureDivisionsSql(paths.overtureDivisions, bbox), log),
       areas: await timed(con, "Overture boundaries", overtureAreasSql(paths.overtureAreas, bbox), log),
       addresses: await timed(con, "Overture addresses", overtureAddressesSql(paths.overtureAddresses, bbox), log),
     };

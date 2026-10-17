@@ -6,12 +6,18 @@ export type FetchFn = (url: string, init?: { headers?: Record<string, string> })
 const OVERTURE_BUCKET = "https://overturemaps-us-west-2.s3.amazonaws.com";
 const OVERTURE_PARTS = [
   "theme=places/type=place/",
+  "theme=divisions/type=division/",
   "theme=divisions/type=division_area/",
   "theme=addresses/type=address/",
 ];
 
-export function overturePath(release: string, part: "places" | "areas" | "addresses"): string {
-  const type = { places: "theme=places/type=place", areas: "theme=divisions/type=division_area", addresses: "theme=addresses/type=address" }[part];
+export function overturePath(release: string, part: "places" | "divisions" | "areas" | "addresses"): string {
+  const type = {
+    places: "theme=places/type=place",
+    divisions: "theme=divisions/type=division",
+    areas: "theme=divisions/type=division_area",
+    addresses: "theme=addresses/type=address",
+  }[part];
   return `s3://overturemaps-us-west-2/release/${release}/${type}/*.parquet`;
 }
 

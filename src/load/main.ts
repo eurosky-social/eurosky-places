@@ -4,7 +4,7 @@ import { huggingFaceToken, loadConfig } from "../config.ts";
 import { createPool } from "../db.ts";
 import { reattachOrphans } from "../live.ts";
 import { migrate } from "../migrate.ts";
-import { extractToStaging, foursquareCutoff } from "./extract.ts";
+import { extractImportance, extractToStaging, foursquareCutoff, WIKIMEDIA_IMPORTANCE_URL } from "./extract.ts";
 import { importOsm } from "./osm.ts";
 import { buildReference, prepareStaging, swapReference, type BBox } from "./reference.ts";
 import { foursquarePath, latestFoursquareRelease, latestOvertureRelease, overturePath } from "./releases.ts";
@@ -17,6 +17,7 @@ const USAGE = `Usage: npm run load -- (--bbox xmin,ymin,xmax,ymax | --worldwide)
   --osm             OpenStreetMap file to import with osm2pgsql (optional with --bbox),
                     e.g. https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf
   --osm-flat-nodes  file for osm2pgsql's node positions; use it for the planet (~100 GB)
+  --wikimedia       Wikipedia importance file, path or URL (default: Nominatim's, ~320 MB)
   --overture        Overture release, e.g. 2026-09-23.1 (default: newest complete)
   --foursquare      Foursquare release, e.g. 2026-09-15 (default: newest complete)`;
 
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
       overture: { type: "string" },
       foursquare: { type: "string" },
       osm: { type: "string" },
+      wikimedia: { type: "string" },
       "osm-flat-nodes": { type: "string" },
     },
   });
@@ -64,6 +66,7 @@ async function main(): Promise<void> {
       databaseUrl: config.databaseUrl,
       paths: {
         overturePlaces: overturePath(overtureRelease, "places"),
+        overtureDivisions: overturePath(overtureRelease, "divisions"),
         overtureAreas: overturePath(overtureRelease, "areas"),
         overtureAddresses: overturePath(overtureRelease, "addresses"),
         foursquarePlaces: foursquarePath(foursquareRelease),
@@ -80,6 +83,8 @@ async function main(): Promise<void> {
     } else {
       log("no --osm: this release has no OpenStreetMap places or streets");
     }
+
+    await extractImportance({ databaseUrl: config.databaseUrl, source: values.wikimedia ?? WIKIMEDIA_IMPORTANCE_URL, log });
 
     const counts = await buildReference(pool);
     log(`built ${JSON.stringify(counts)}`);

@@ -14,12 +14,18 @@ export function offset(north: number, east: number): { lat: number; lng: number 
 
 export interface FixturePlace {
   dataset: string;
+  // For openstreetmap.org: a number, loaded as a node through osm2pgsql's staging table.
   id: string;
   name: string;
   category?: string;
   group: CategoryGroup;
   north: number;
   east: number;
+  wikidata?: string;
+  // Wikipedia importance for `wikidata`, 0–1.
+  importance?: number;
+  // Other names (OpenStreetMap places only), e.g. { en: "Brandenburg Gate" }.
+  names?: Record<string, string>;
 }
 
 export interface FixtureArea {
@@ -28,6 +34,11 @@ export interface FixtureArea {
   name: string;
   country?: string;
   wkt: string;
+  wikidata?: string;
+  importance?: number;
+  population?: number;
+  // Other names, e.g. { en: "Munich" }.
+  names?: Record<string, string>;
 }
 
 export interface FixtureAddress {
@@ -44,20 +55,39 @@ export async function loadFixtures(
   data: { places?: FixturePlace[]; areas?: FixtureArea[]; addresses?: FixtureAddress[] },
 ): Promise<void> {
   await prepareStaging(pool);
+  const importance = new Map<string, number>();
   for (const p of data.places ?? []) {
     const { lat, lng } = offset(p.north, p.east);
+    if (p.wikidata && p.importance !== undefined) importance.set(p.wikidata, p.importance);
+    if (p.dataset === "openstreetmap.org") {
+      // The way osm2pgsql delivers them; the build maps the category to its group.
+      await pool.query(
+        `INSERT INTO ref_next.stage_osm_places (osm_type, osm_id, name, category, wikidata, names, geom)
+         VALUES ('N', $1, $2, $3, $4, $5, ST_SetSRID(ST_MakePoint($6, $7), 4326))`,
+        [Number(p.id), p.name, p.category ?? "tourism=attraction", p.wikidata ?? null, p.names ?? null, lng, lat],
+      );
+      continue;
+    }
     await pool.query(
-      `INSERT INTO ref_next.stage_places (dataset, collection, id, name, category, category_group, lon, lat)
-       VALUES ($1, 'place', $2, $3, $4, $5, $6, $7)`,
-      [p.dataset, p.id, p.name, p.category ?? null, p.group, lng, lat],
+      `INSERT INTO ref_next.stage_places (dataset, collection, id, name, category, category_group, lon, lat, wikidata)
+       VALUES ($1, 'place', $2, $3, $4, $5, $6, $7, $8)`,
+      [p.dataset, p.id, p.name, p.category ?? null, p.group, lng, lat, p.wikidata ?? null],
     );
   }
   for (const a of data.areas ?? []) {
+    if (a.wikidata && a.importance !== undefined) importance.set(a.wikidata, a.importance);
     await pool.query(
       `INSERT INTO ref_next.stage_areas (division_id, subtype, name, country, wkb)
        VALUES ($1, $2, $3, $4, ST_AsBinary(ST_GeomFromText($5, 4326)))`,
       [a.id, a.subtype, a.name, a.country ?? null, a.wkt],
     );
+    await pool.query(
+      "INSERT INTO ref_next.stage_divisions (division_id, wikidata, population, names) VALUES ($1, $2, $3, $4)",
+      [a.id, a.wikidata ?? null, a.population ?? null, a.names ? JSON.stringify(a.names) : null],
+    );
+  }
+  for (const [wikidata, value] of importance) {
+    await pool.query("INSERT INTO ref_next.stage_importance (wikidata, importance) VALUES ($1, $2)", [wikidata, value]);
   }
   for (const a of data.addresses ?? []) {
     const { lat, lng } = offset(a.north, a.east);
