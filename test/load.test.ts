@@ -4,9 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { DuckDBInstance } from "@duckdb/node-api";
+import { duckdbSettings } from "../src/config.ts";
 import type { Pool } from "../src/db.ts";
-import { extractImportance, extractToStaging, type SourcePaths } from "../src/load/extract.ts";
-import { buildReference, prepareStaging, rollbackReference, swapReference, type BBox } from "../src/load/reference.ts";
+import { extractImportance, extractToStaging, openDuckDB, type SourcePaths } from "../src/load/extract.ts";
+import {
+  buildReference,
+  dropRollbackCopy,
+  prepareStaging,
+  rollbackReference,
+  swapReference,
+  type BBox,
+} from "../src/load/reference.ts";
 import { freshDatabase, TEST_DATABASE_URL } from "./helpers/db.ts";
 
 // Small local Parquet files shaped like the real sources, so the whole load runs
@@ -211,6 +219,32 @@ test("a second load keeps the previous one for rollback", async () => {
   const remaining = await pool.query("SELECT nspname FROM pg_namespace WHERE nspname LIKE 'ref%'");
   assert.deepEqual(remaining.rows.map((r) => r.nspname), ["ref"]);
   await assert.rejects(rollbackReference(pool), /no previous reference data/);
+});
+
+test("a new load first drops the rollback copy, so two copies at most are on disk", async () => {
+  await load({ overture: "fixture-3", foursquare: "fixture-3" });
+  assert.equal(await dropRollbackCopy(pool), true);
+  const schemas = await pool.query("SELECT nspname FROM pg_namespace WHERE nspname LIKE 'ref%' ORDER BY nspname");
+  assert.deepEqual(schemas.rows.map((r) => r.nspname), ["ref"]);
+  assert.equal(await dropRollbackCopy(pool), false);
+});
+
+test("the loader's DuckDB takes its memory limit and spill directory from the settings", async () => {
+  const spill = join(dir, "duckdb-spill");
+  const duck = await openDuckDB(TEST_DATABASE_URL, undefined, { memoryLimit: "1GiB", tempDirectory: spill });
+  try {
+    const reader = await duck.con.runAndReadAll(
+      "SELECT current_setting('memory_limit') AS m, current_setting('temp_directory') AS t",
+    );
+    assert.deepEqual(reader.getRows(), [["1.0 GiB", spill]]);
+  } finally {
+    duck.close();
+  }
+  assert.deepEqual(duckdbSettings({ DUCKDB_MEMORY_LIMIT: "16GB", DUCKDB_TEMP_DIRECTORY: "/scratch" }), {
+    memoryLimit: "16GB",
+    tempDirectory: "/scratch",
+  });
+  assert.deepEqual(duckdbSettings({ DUCKDB_MEMORY_LIMIT: "" }), { memoryLimit: undefined, tempDirectory: undefined });
 });
 
 test("a source with duplicate IDs fails the load and leaves the served data alone", async () => {

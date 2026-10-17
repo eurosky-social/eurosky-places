@@ -42,7 +42,10 @@ Foursquare dataset is gated: the load needs `HF_TOKEN` (or `~/.huggingface/token
 Hugging Face account that accepted its terms. A worldwide load needs `--worldwide`
 explicitly and belongs on the production host, not a laptop (~25 GB of downloads plus the
 88 GB OpenStreetMap planet file, which it needs via `--osm`; pass `--osm-flat-nodes <file>`
-so osm2pgsql keeps node positions on disk). `--osm` is optional for `--bbox` loads. Every
+so osm2pgsql keeps node positions on disk; cap DuckDB with `DUCKDB_MEMORY_LIMIT` and
+`DUCKDB_TEMP_DIRECTORY` there, since Postgres shares the machine). A load drops the
+previous release's rollback copy before it starts building, so two copies at most are on
+disk at once. `--osm` is optional for `--bbox` loads. Every
 load also streams the Wikipedia importance file from nominatim.org (~320 MB, keeps only
 the Wikidata IDs it needs); `--wikimedia <path>` uses a local copy instead.
 
