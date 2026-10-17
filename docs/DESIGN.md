@@ -208,7 +208,9 @@ Schemas:
 
 - `ref`: reference data (places, areas, addresses). Rebuilt from scratch by every load in
   `ref_next`, stored in location order (geohash), frozen (`VACUUM FREEZE`), then swapped in
-  one transaction. The previous one stays as `ref_prev` for rollback.
+  one transaction. The previous one stays as `ref_prev` for rollback until the next load
+  starts, which drops it first: worldwide each copy is ~200 GB, so keeping it through the
+  build would mean three copies on disk at the peak instead of two.
 - `live`: survives loads. `checkins` (one row per check-in record, so duplicates,
   deletions and "last 30 days" work), `place_overrides`, `place_snapshots` (name and
   position of every place with live data, for following ID changes), `key_moves`.

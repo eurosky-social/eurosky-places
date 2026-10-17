@@ -23,6 +23,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   };
 }
 
+// DuckDB, the loader, defaults to 80% of the machine's memory. On the production host
+// Postgres needs its share, so the load sets a limit there; spill files go to the
+// temp directory, which should be on a disk with room.
+export interface DuckDBSettings {
+  memoryLimit?: string;
+  tempDirectory?: string;
+}
+
+export function duckdbSettings(env: NodeJS.ProcessEnv = process.env): DuckDBSettings {
+  return {
+    memoryLimit: env.DUCKDB_MEMORY_LIMIT || undefined,
+    tempDirectory: env.DUCKDB_TEMP_DIRECTORY || undefined,
+  };
+}
+
 // The Foursquare dataset on Hugging Face is gated, so every download needs a token
 // from an account that accepted the dataset's terms.
 export function huggingFaceToken(env: NodeJS.ProcessEnv = process.env): string {

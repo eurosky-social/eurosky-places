@@ -1,12 +1,12 @@
 import { basename } from "node:path";
 import { parseArgs } from "node:util";
-import { huggingFaceToken, loadConfig } from "../config.ts";
+import { duckdbSettings, huggingFaceToken, loadConfig } from "../config.ts";
 import { createPool } from "../db.ts";
 import { reattachOrphans } from "../live.ts";
 import { migrate } from "../migrate.ts";
 import { extractImportance, extractToStaging, foursquareCutoff, WIKIMEDIA_IMPORTANCE_URL } from "./extract.ts";
 import { importOsm } from "./osm.ts";
-import { buildReference, prepareStaging, swapReference, type BBox } from "./reference.ts";
+import { buildReference, dropRollbackCopy, prepareStaging, swapReference, type BBox } from "./reference.ts";
 import { foursquarePath, latestFoursquareRelease, latestOvertureRelease, overturePath } from "./releases.ts";
 
 const USAGE = `Usage: npm run load -- (--bbox xmin,ymin,xmax,ymax | --worldwide) [--osm <file.osm.pbf>] [options]
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
   }
   const bbox = values.bbox ? parseBBox(values.bbox) : null;
   const config = loadConfig();
+  const duckdb = duckdbSettings();
   const token = huggingFaceToken();
   const log = (message: string) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${message}`);
 
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
     const foursquareRelease = values.foursquare ?? (await latestFoursquareRelease(token));
     log(`Overture ${overtureRelease}, Foursquare ${foursquareRelease}, ${bbox ? `bbox ${bbox.join(",")}` : "worldwide"}`);
 
+    if (await dropRollbackCopy(pool)) log("dropped the previous release's rollback copy (ref_prev) to make room");
     await prepareStaging(pool);
     const extracted = await extractToStaging({
       databaseUrl: config.databaseUrl,
@@ -74,6 +76,7 @@ async function main(): Promise<void> {
       foursquareCutoff: foursquareCutoff(foursquareRelease),
       bbox,
       huggingFaceToken: token,
+      duckdb,
       log,
     });
     log(`extracted ${JSON.stringify(extracted)}`);
@@ -84,7 +87,7 @@ async function main(): Promise<void> {
       log("no --osm: this release has no OpenStreetMap places or streets");
     }
 
-    await extractImportance({ databaseUrl: config.databaseUrl, source: values.wikimedia ?? WIKIMEDIA_IMPORTANCE_URL, log });
+    await extractImportance({ databaseUrl: config.databaseUrl, source: values.wikimedia ?? WIKIMEDIA_IMPORTANCE_URL, duckdb, log });
 
     const counts = await buildReference(pool);
     log(`built ${JSON.stringify(counts)}`);

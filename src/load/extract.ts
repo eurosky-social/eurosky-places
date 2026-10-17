@@ -1,4 +1,5 @@
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
+import type { DuckDBSettings } from "../config.ts";
 import { categoryGroupMacroSql } from "../places/categories.ts";
 import { DATASETS } from "../places/origin.ts";
 import type { BBox } from "./reference.ts";
@@ -20,6 +21,7 @@ export interface ExtractOptions {
   // Restricts the load to an area, for development; null loads the whole world.
   bbox: BBox | null;
   huggingFaceToken?: string;
+  duckdb?: DuckDBSettings;
   log?: (message: string) => void;
 }
 
@@ -122,8 +124,11 @@ export function overtureAddressesSql(source: string, bbox: BBox | null): string 
 }
 
 // An in-memory DuckDB that can read remote Parquet and write into our Postgres as `pg`.
-export async function openDuckDB(databaseUrl: string, huggingFaceToken?: string) {
-  const instance = await DuckDBInstance.create(":memory:");
+export async function openDuckDB(databaseUrl: string, huggingFaceToken?: string, settings: DuckDBSettings = {}) {
+  const options: Record<string, string> = {};
+  if (settings.memoryLimit) options.memory_limit = settings.memoryLimit;
+  if (settings.tempDirectory) options.temp_directory = settings.tempDirectory;
+  const instance = await DuckDBInstance.create(":memory:", options);
   const con = await instance.connect();
   await con.run("INSTALL httpfs; LOAD httpfs; INSTALL spatial; LOAD spatial; INSTALL postgres; LOAD postgres");
   await con.run("SET s3_region = 'us-west-2'");
@@ -151,9 +156,10 @@ async function timed(con: DuckDBConnection, label: string, query: string, log: (
 export async function extractImportance(opts: {
   databaseUrl: string;
   source: string;
+  duckdb?: DuckDBSettings;
   log?: (message: string) => void;
 }): Promise<number> {
-  const duck = await openDuckDB(opts.databaseUrl);
+  const duck = await openDuckDB(opts.databaseUrl, undefined, opts.duckdb);
   try {
     // nominatim.org refuses requests without an identifying User-Agent.
     await duck.con.run(
@@ -170,7 +176,7 @@ export async function extractImportance(opts: {
 export async function extractToStaging(opts: ExtractOptions): Promise<Record<string, number>> {
   const { paths, bbox } = opts;
   const log = opts.log ?? (() => {});
-  const duck = await openDuckDB(opts.databaseUrl, opts.huggingFaceToken);
+  const duck = await openDuckDB(opts.databaseUrl, opts.huggingFaceToken, opts.duckdb);
   try {
     const { con } = duck;
     return {

@@ -34,9 +34,19 @@ export async function buildReference(pool: Pool): Promise<Record<string, number>
   return counts;
 }
 
+// Drops the rollback copy (ref_prev) before a load starts building, so at most two copies
+// of the reference data are on disk at once: the one being served and the one being
+// built. Worldwide, each is ~200 GB. Rollback stays possible between loads. Returns
+// whether there was one.
+export async function dropRollbackCopy(pool: Pool): Promise<boolean> {
+  const { rowCount } = await pool.query("SELECT 1 FROM pg_namespace WHERE nspname = 'ref_prev'");
+  await pool.query("DROP SCHEMA IF EXISTS ref_prev CASCADE");
+  return Boolean(rowCount);
+}
+
 // Makes ref_next the served schema in one transaction. The previous one is kept as
-// ref_prev for rollback; the one before that is dropped. Returns whether there was a
-// previous one.
+// ref_prev for rollback; an older one, if still there, is dropped. Returns whether there
+// was a previous one.
 export async function swapReference(pool: Pool, release: Release, counts: Record<string, number>): Promise<boolean> {
   return withTransaction(pool, async (client) => {
     await client.query("DROP SCHEMA IF EXISTS ref_prev CASCADE");
