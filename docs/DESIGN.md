@@ -20,8 +20,8 @@ Events are out of scope; they are handled by a separate component.
 - **Endpoint A (EUR-480), `POST /v1/suggestions`:** exact position in (request body, never
   the URL), ranked places, the street and the containing areas out. Type-ahead on top
   (EUR-482). See the README for the request and response.
-- **Endpoint B (EUR-481):** everything in a fixed ~1 km square (coordinates rounded to two
-  decimals). The same square has the same URL for everyone, so responses are cacheable on
+- **Endpoint B (EUR-481), `GET /v1/squares/{lat},{lng}`:** everything in a fixed ~1 km
+  square (the position rounded down to two decimals). The same square has the same URL for everyone, so responses are cacheable on
   the phone and a CDN. For clients that do not want to send a precise position. Finer
   requests are refused, not rounded, so a client that forgets to round is caught at once.
 
@@ -76,6 +76,26 @@ registry-only legal entities, not venues. They are filtered.
   Name comparison is the hot spot in dense streets (hundreds of thousands of pairs), which
   is why it bails out early (`similarEnough`); a full edit distance for every pair made
   eight concurrent requests drop to ~22 requests/s.
+
+## Squares (EUR-481)
+
+A square is 0.01° × 0.01°, named by its south-west corner with exactly two decimals. The
+canonical spelling is enforced (it must round-trip through the formatter), so one square
+has one URL and caches hit. Bounds are half-open (a place exactly on the north or east edge
+belongs to the next square) and computed from integer hundredths, so there are no
+floating-point gaps or overlaps between squares.
+
+Places are merged and ranked by importance alone (kind × source agreement × popularity),
+paged 500 at a time. Areas come with `whole` and, for partial ones, their outline clipped
+to the square, which is what lets an app pick a district or city without sending its
+position. Same-named areas collapse only among the whole ones: dropping a partial area
+could drop the one the user is actually in.
+
+Merging a dense square means thousands of places, so merging compares a place only with
+places in its own and the eight neighbouring 80 m grid cells, and measures distance with a
+flat-earth approximation (one cosine) instead of the great-circle formula. A test checks
+that the grid gives exactly the same groups as comparing every pair. Hackescher Markt
+(~3,600 records): merging ~63 ms, the whole response ~100 ms.
 
 ## Areas: ordered by size, not mapped to levels (decided 2026-10-15)
 

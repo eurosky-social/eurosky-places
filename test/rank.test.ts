@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isLeadingWords, nameSimilarity, normalizeName, similarEnough } from "../src/places/names.ts";
-import { mergeCandidates, rankSuggestions, type Candidate } from "../src/places/rank.ts";
+import { mergeCandidates, rankSuggestions, samePlace, type Candidate } from "../src/places/rank.ts";
 import { collapseAreas, type Area } from "../src/suggest.ts";
 
 const base = { lat: 52.4867, lng: 13.4245, category: null };
@@ -91,6 +91,42 @@ test("ranking prefers places people pick over closer services", () => {
     ]),
   );
   assert.deepEqual(ranked.map((s) => s.name), ["The Coffee Ape", "ING-Geldautomat"]);
+});
+
+test("the grid-based merge groups exactly like comparing every pair", () => {
+  // The straightforward version: scan all clusters for each candidate.
+  const reference = (candidates: Candidate[]) => {
+    const clusters: Array<Array<Candidate & { key: string }>> = [];
+    for (const candidate of [...candidates].sort((a, b) => a.distance - b.distance)) {
+      const c = { ...candidate, key: normalizeName(candidate.name) };
+      const home = clusters.find((ms) => !ms.some((m) => m.dataset === c.dataset) && ms.some((m) => samePlace(m, c)));
+      if (home) home.push(c);
+      else clusters.push([c]);
+    }
+    return clusters.map((ms) => ms.map((m) => m.origin).sort().join(" ")).sort();
+  };
+  let seed = 7;
+  const random = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31);
+  const names = ["Späti", "Spati", "McDonald's", "Café Kreuzberg", "Cafe Kreuzberg", "Hugendubel", "Hugendubel Berlin", "Zapfhahn"];
+  const groups: Candidate["group"][] = ["food_drink", "shopping", "other"];
+  for (let round = 0; round < 20; round++) {
+    const candidates: Candidate[] = Array.from({ length: 300 }, (_, i) => {
+      const north = (random() - 0.5) * 600;
+      const east = (random() - 0.5) * 600;
+      return {
+        origin: `urn:atgeo:${["foursquare.com", "overturemaps.org", "openstreetmap.org"][i % 3]}:place:${round}-${i}`,
+        dataset: ["foursquare.com", "overturemaps.org", "openstreetmap.org"][i % 3]!,
+        name: names[Math.floor(random() * names.length)]!,
+        category: null,
+        group: groups[Math.floor(random() * groups.length)]!,
+        lat: 52.4867 + north / 111_320,
+        lng: 13.4245 + east / 67_780,
+        distance: Math.hypot(north, east),
+      };
+    });
+    const merged = mergeCandidates(candidates).map((s) => [s.origin, ...s.sameAs].sort().join(" ")).sort();
+    assert.deepEqual(merged, reference(candidates), `round ${round}`);
+  }
 });
 
 test("collapseAreas keeps the smallest of a run of same-named areas", () => {

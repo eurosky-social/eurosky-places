@@ -16,7 +16,7 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 | Monthly worldwide load and swap | EUR-478 | load pipeline works for an area; worldwide run, prewarm and scheduling to do |
 | OpenStreetMap import (osm2pgsql) | EUR-479 | to do |
 | Endpoint A: suggestions for a position | EUR-480 | done (`POST /v1/suggestions`) |
-| Endpoint B: cacheable ~1 km squares | EUR-481 | to do |
+| Endpoint B: cacheable ~1 km squares | EUR-481 | done (`GET /v1/squares/{lat},{lng}`) |
 | Type-ahead | EUR-482 | to do |
 | Check-in counts, popularity, overrides | EUR-483 | done (`/internal/*`) |
 | Worldwide benchmark on a temporary server | EUR-484 | to do |
@@ -105,6 +105,29 @@ Response at Hermannplatz, Berlin (real data, shortened):
   point inside each. Publish that point, not the user's, when the user picks an area.
   Types are not consistent across countries (Berlin is a `region`, Munich a `county`), so
   the list is ordered by size rather than labelled street / district / city.
+
+## Endpoint B: `GET /v1/squares/{lat},{lng}`
+
+Everything in one square of 0.01° × 0.01° (about 1.1 km × 0.7 km in Berlin), for apps that
+do not want to send a precise position. The app names the square by its south-west corner,
+rounding its position *down* to two decimals (`floor(lat × 100) / 100`), then filters and
+ranks on the device. Everyone in a square asks for the same URL, so responses are
+`Cache-Control: public, max-age=3600` and can sit behind a CDN.
+
+```sh
+curl -s localhost:3000/v1/squares/52.48,13.42
+```
+
+- More than two decimals is refused (`400 TooPrecise`), as are other spellings of a square
+  (`52.4`, `052.48`, `-0.00`) and any query parameter other than `page`, so a careless
+  client cannot put its position in the URL.
+- `places`: as in endpoint A but without `distance`, most important first (kind, sources
+  agreeing, check-ins), 500 per page; `next` links the following page.
+- `areas` (first page only): every area overlapping the square, smallest first, with
+  `whole: true` if it covers the whole square. Otherwise `outline` is the part inside the
+  square (GeoJSON, simplified to ~5 m): the app checks whether its own position is inside.
+- Measured on the Berlin slice: a dense square (Hackescher Markt, ~2,900 places) is ~27 KB
+  gzipped for its first page and ~100 ms to build; an average central-Berlin square ~40 ms.
 
 ## Internal routes: `/internal/*`
 
