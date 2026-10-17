@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { huggingFaceToken, loadConfig } from "../config.ts";
 import { createPool } from "../db.ts";
+import { reattachOrphans } from "../live.ts";
 import { migrate } from "../migrate.ts";
 import { extractToStaging, foursquareCutoff } from "./extract.ts";
 import { buildReference, prepareStaging, swapReference, type BBox } from "./reference.ts";
@@ -71,6 +72,12 @@ async function main(): Promise<void> {
     const release = { sources: { overture: overtureRelease, foursquare: foursquareRelease }, bbox };
     const hadPrevious = await swapReference(pool, release, counts);
     log(`swapped: ref now serves this release${hadPrevious ? "; the previous one is kept as ref_prev" : ""}`);
+
+    const reattached = await reattachOrphans(pool);
+    log(
+      `live data on retired place IDs: ${reattached.orphans} places, ${reattached.moved.length} moved to the ` +
+        `same place's new ID, ${reattached.unmatched.length} without a match (kept as they are)`,
+    );
   } finally {
     await pool.end();
   }

@@ -1,4 +1,5 @@
 import type { Pool } from "./db.ts";
+import { liveDataFor } from "./live.ts";
 import type { CategoryGroup } from "./places/categories.ts";
 import { normalizeName } from "./places/names.ts";
 import { mergeCandidates, rankSuggestions, type Candidate, type Suggestion } from "./places/rank.ts";
@@ -98,6 +99,29 @@ export function collapseAreas(areas: Area[]): Area[] {
   return result;
 }
 
+// Applies live data to merged places: drops hidden ones, uses our corrected names, and
+// adds up check-ins under all of a place's IDs (an app may have published any of them).
+export async function withLiveData(pool: Pool, places: Suggestion[]): Promise<Suggestion[]> {
+  const keys = places.flatMap((p) => [p.origin, ...p.sameAs]);
+  const { counts, overrides } = await liveDataFor(pool, keys);
+  const result: Suggestion[] = [];
+  for (const place of places) {
+    const ids = [place.origin, ...place.sameAs];
+    const fixes = ids.map((id) => overrides.get(id)).filter((o) => o !== undefined);
+    if (fixes.some((o) => o.hidden)) continue;
+    const checkins = { total: 0, last30d: 0 };
+    for (const id of ids) {
+      const c = counts.get(id);
+      if (c) {
+        checkins.total += c.total;
+        checkins.last30d += c.last30d;
+      }
+    }
+    result.push({ ...place, name: fixes.find((o) => o.name)?.name ?? place.name, checkins });
+  }
+  return result;
+}
+
 export async function suggest(pool: Pool, req: SuggestRequest): Promise<SuggestResponse> {
   const point = [req.lng, req.lat];
   const [places, areas, street] = await Promise.all([
@@ -116,7 +140,7 @@ export async function suggest(pool: Pool, req: SuggestRequest): Promise<SuggestR
     lng: r.lng,
     distance: r.distance,
   }));
-  const ranked = rankSuggestions(mergeCandidates(candidates)).slice(0, req.limit);
+  const ranked = rankSuggestions(await withLiveData(pool, mergeCandidates(candidates))).slice(0, req.limit);
 
   const s = street.rows[0];
   return {

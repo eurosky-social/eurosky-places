@@ -18,7 +18,7 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 | Endpoint A: suggestions for a position | EUR-480 | done (`POST /v1/suggestions`) |
 | Endpoint B: cacheable ~1 km squares | EUR-481 | to do |
 | Type-ahead | EUR-482 | to do |
-| Check-in counts and popularity | EUR-483 | tables exist; to do |
+| Check-in counts, popularity, overrides | EUR-483 | done (`/internal/*`) |
 | Worldwide benchmark on a temporary server | EUR-484 | to do |
 | Host and monthly job (eurosky-infra) | EUR-485 | to do |
 | Shared formats with ATGeo | EUR-486 | to do |
@@ -71,13 +71,15 @@ Response at Hermannplatz, Berlin (real data, shortened):
       "origin": "urn:atgeo:foursquare.com:place:4df8e836a809df9984eb22b9",
       "sameAs": [],
       "name": "Currywurstbude", "category": "German Restaurant", "group": "food_drink",
-      "lat": 52.486723, "lng": 13.42451, "distance": 3
+      "lat": 52.486723, "lng": 13.42451, "distance": 3,
+      "checkins": { "total": 0, "last30d": 0 }
     },
     {
       "origin": "urn:atgeo:foursquare.com:place:4ae774f1f964a5207dab21e3",
       "sameAs": ["urn:atgeo:overturemaps.org:place:adc6176b-5d09-4dac-89a7-3649b18e525e"],
       "name": "McDonald's", "category": "Fast Food Restaurant", "group": "food_drink",
-      "lat": 52.486762, "lng": 13.424558, "distance": 8
+      "lat": 52.486762, "lng": 13.424558, "distance": 8,
+      "checkins": { "total": 0, "last30d": 0 }
     }
   ],
   "street": { "name": "Hermannplatz", "lat": 52.486935, "lng": 13.425165 },
@@ -96,13 +98,25 @@ Response at Hermannplatz, Berlin (real data, shortened):
 
 - `places`: one entry per real place, ranked; `origin` is the ID from the most stable
   source, `sameAs` the same place in other sources. `group` is the coarse kind (see
-  `src/places/categories.ts`).
+  `src/places/categories.ts`). `checkins` counts check-ins under any of the place's IDs.
 - `street`: the nearest street, with a point in its middle around the user (not the
   user's position). `null` if there is no address data within 100 m.
 - `areas`: the areas containing the position, smallest first, with Overture's type and a
   point inside each. Publish that point, not the user's, when the user picks an area.
   Types are not consistent across countries (Berlin is a `region`, Munich a `county`), so
   the list is ordered by size rather than labelled street / district / city.
+
+## Internal routes: `/internal/*`
+
+For our own components, not apps. Enabled only when `INTERNAL_TOKEN` is set; every request
+needs `Authorization: Bearer $INTERNAL_TOKEN`. Keep `/internal/` off the public proxy.
+
+| Route | Used by | |
+|---|---|---|
+| `POST /internal/checkins` | the check-in listener | `{"events": [{"uri": "at://…", "place": "urn:atgeo:…", "createdAt": "…"}, {"uri": "at://…", "action": "delete"}]}`, up to 1,000 per call. Idempotent by `uri`; optional `name`, `lat`, `lng` describe the place as published, for places not in our data |
+| `GET /internal/overrides` | admins | all overrides |
+| `PUT /internal/overrides/{urn}` | admins | `{"hidden": true}`, `{"name": "…"}`, `{"note": "…"}`; applies to the merged place that has this ID |
+| `DELETE /internal/overrides/{urn}` | admins | removes an override |
 
 ## Commands
 
