@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DuckDBInstance, type DuckDBConnection } from "@duckdb/node-api";
 import type { DuckDBSettings } from "../config.ts";
-import { categoryGroupMacroSql } from "../places/categories.ts";
+import { categoryGroupMacroSql, nonVenueMacroSql } from "../places/categories.ts";
 import { DATASETS } from "../places/origin.ts";
 import type { BBox } from "./reference.ts";
 
@@ -79,10 +79,15 @@ export function overturePlaces(source: string, bbox: BBox | null): Extraction {
         AND confidence >= 0.5
         -- Company-registry records (BrightQuery, since 2026-09) are legal entities at their
         -- registered address, not venues. Keep a record only if another source confirms it.
-        AND len(list_filter(sources, s -> s.dataset NOT IN ('BrightQuery', 'Overture'))) > 0`,
+        AND len(list_filter(sources, s -> s.dataset NOT IN ('BrightQuery', 'Overture'))) > 0
+        -- Parking, cash machines, homes, … (NON_VENUES in src/places/categories.ts)
+        AND NOT overture_non_venue(list_append(coalesce(taxonomy.hierarchy, []::VARCHAR[]), basic_category))`,
   };
 }
 
+// A Foursquare place can have several category labels. Labels of things that are not
+// venues (NON_VENUES) are dropped, and a place left with none is skipped; its category is
+// its first remaining label. Places without any label are kept.
 export function foursquarePlaces(source: string, cutoff: string, bbox: BBox | null): Extraction {
   return {
     label: "Foursquare places",
@@ -90,16 +95,20 @@ export function foursquarePlaces(source: string, cutoff: string, bbox: BBox | nu
     columns: PLACE_COLUMNS,
     select: `
       SELECT ${lit(DATASETS.foursquare)} AS dataset, 'place' AS collection, fsq_place_id AS id, name,
-             list_last(string_split(fsq_category_labels[1], ' > ')) AS category,
-             category_group(fsq_category_labels[1]) AS category_group,
+             list_last(string_split(venue_labels[1], ' > ')) AS category,
+             category_group(venue_labels[1]) AS category_group,
              NULL::FLOAT AS confidence, longitude AS lon, latitude AS lat
-      FROM read_parquet(${lit(source)})
-      WHERE ${bboxFilter(bbox, FOURSQUARE_BBOX)}
-        AND name IS NOT NULL AND longitude IS NOT NULL AND latitude IS NOT NULL
-        AND date_closed IS NULL
-        AND date_refreshed >= ${lit(cutoff)}
-        -- Foursquare's own doubts about a record: closed, duplicate, doesnt_exist, …
-        AND coalesce(len(unresolved_flags), 0) = 0`,
+      FROM (
+        SELECT *, list_filter(fsq_category_labels, l -> NOT foursquare_non_venue(l)) AS venue_labels
+        FROM read_parquet(${lit(source)})
+        WHERE ${bboxFilter(bbox, FOURSQUARE_BBOX)}
+          AND name IS NOT NULL AND longitude IS NOT NULL AND latitude IS NOT NULL
+          AND date_closed IS NULL
+          AND date_refreshed >= ${lit(cutoff)}
+          -- Foursquare's own doubts about a record: closed, duplicate, doesnt_exist, …
+          AND coalesce(len(unresolved_flags), 0) = 0
+      )
+      WHERE coalesce(len(venue_labels), 0) > 0 OR coalesce(len(fsq_category_labels), 0) = 0`,
   };
 }
 
@@ -179,6 +188,7 @@ export async function openDuckDB(databaseUrl: string, huggingFaceToken?: string,
   if (huggingFaceToken) await con.run(`CREATE SECRET hf (TYPE huggingface, TOKEN ${lit(huggingFaceToken)})`);
   await con.run(`ATTACH ${lit(databaseUrl)} AS pg (TYPE postgres)`);
   await con.run(categoryGroupMacroSql());
+  await con.run(nonVenueMacroSql());
   return {
     con,
     close() {
