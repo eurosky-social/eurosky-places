@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, before, test } from "node:test";
 import type { Pool } from "../src/db.ts";
 import { importOsm, OSM_FILTER_KEYS, OSM_STYLE } from "../src/load/osm.ts";
 import { buildReference, prepareStaging, swapReference } from "../src/load/reference.ts";
-import { categoryGroup } from "../src/places/categories.ts";
+import { categoryGroup, NON_VENUES } from "../src/places/categories.ts";
 import { buildApp } from "../src/server.ts";
 import { freshDatabase, TEST_DATABASE_URL } from "./helpers/db.ts";
 
@@ -36,6 +39,9 @@ test("the Postgres category function gives the same groups as categoryGroup", as
     "aeroway=aerodrome", "natural=peak", "natural=water", "man_made=tower", "place=square",
     "office=company", "craft=carpenter", "healthcare=doctor", "Dining and Drinking > Bar > Pub",
     "coffee_shop food_and_drink > cafe", "parking", "theme_park", "public_plaza", "",
+    "shop=garden_centre", "shop=music", "craft=gardener", "office=cooperative", "amenity=music_school",
+    "travel_service travel_and_transportation > travel_service > tour_operator",
+    "Community and Government > Cemetery", "Travel and Transportation > Transport Hub > Rental Car Location",
   ];
   const { rows } = await pool.query("SELECT d, ref_next.category_group(d) AS g FROM unnest($1::text[]) AS d", [descriptions]);
   assert.deepEqual(
@@ -77,6 +83,40 @@ test("osm2pgsql imports named places and streets, and skips the rest", { skip },
 
   const streets = await pool.query("SELECT name FROM ref.streets");
   assert.deepEqual(streets.rows, [{ name: "Weserstraße" }]);
+});
+
+// The load leaves out parking, cash machines, homes, … from Foursquare and Overture
+// (NON_VENUES); the OpenStreetMap style must not import their OpenStreetMap versions
+// either, so the three sources agree.
+test("OpenStreetMap's versions of the non-venues are not imported", { skip }, async () => {
+  const tags = NON_VENUES.flatMap((n) => n.osm);
+  assert.ok(tags.length > 20, "NON_VENUES names OpenStreetMap tags");
+  const node = (id: number, tag: string, name: string) => {
+    const [k, v] = tag.split("=");
+    return `  <node id="${id}" version="1" lat="52.4869" lon="13.4246">
+    <tag k="${k}" v="${v}"/>
+    <tag k="name" v="${name}"/>
+  </node>`;
+  };
+  const dir = await mkdtemp(join(tmpdir(), "eurosky-places-osm-"));
+  try {
+    const file = join(dir, "non-venues.osm");
+    await writeFile(
+      file,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<osm version="0.6" generator="test">
+${node(1, "amenity=cafe", "Café")}
+${tags.map((tag, i) => node(i + 2, tag, tag)).join("\n")}
+</osm>
+`,
+    );
+    await prepareStaging(pool);
+    await importOsm({ databaseUrl: TEST_DATABASE_URL, file });
+    const { rows } = await pool.query("SELECT osm_id::int, category FROM ref_next.stage_osm_places ORDER BY osm_id");
+    assert.deepEqual(rows, [{ osm_id: 1, category: "amenity=cafe" }]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("the osmium filter keeps exactly what the style keeps", { skip }, async () => {

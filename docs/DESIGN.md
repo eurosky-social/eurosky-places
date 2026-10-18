@@ -29,8 +29,8 @@ Events are out of scope; they are handled by a separate component.
 
 | Source | What we take | Filters at load time |
 |---|---|---|
-| Foursquare Open Source Places (Apache 2.0, gated on Hugging Face) | venues | open, confirmed in the two years before the release, no `unresolved_flags` |
-| Overture places (CDLA-Permissive 2.0) | venues | open or unknown status, confidence ≥ 0.5, confirmed by a source other than the BrightQuery company registry |
+| Foursquare Open Source Places (Apache 2.0, gated on Hugging Face) | venues | open, confirmed in the two years before the release, no `unresolved_flags`, not a non-venue (below) |
+| Overture places (CDLA-Permissive 2.0) | venues | open or unknown status, confidence ≥ 0.5, confirmed by a source other than the BrightQuery company registry, not a non-venue (below) |
 | Overture divisions (ODbL) | district … country outlines | land only; outlines cut into ≤ 256-point pieces |
 | Overture addresses | street level | named street |
 | OpenStreetMap (ODbL), EUR-479 | venues, sights, parks, named streets | named, in categories people check into or photograph (see `src/load/osm/places.lua`) |
@@ -46,6 +46,46 @@ rural Tyrol, by name + distance matching):
 Overture's September 2026 release added BrightQuery company-registry records (Germany,
 Italy, Denmark, US): in Berlin Mitte 13,270 of 23,003 open Overture records were
 registry-only legal entities, not venues. They are filtered.
+
+### Non-venues: the same things left out of every source (EUR-480, decided 2026-10-18)
+
+The OpenStreetMap style never imported parking, ATMs, toilets, playgrounds and the like,
+but Foursquare and Overture list them too, and the first worldwide load suggested them
+("Parking Opp Laico" in central Nairobi). A load now leaves the same kinds of things out of
+all three sources: `NON_VENUES` in `src/places/categories.ts`, one entry per kind with its
+Foursquare labels, Overture taxonomy IDs and OpenStreetMap tags.
+
+- **What:** parking (lots, garages, bike parking, park-and-ride); cash machines; charging
+  stations; toilets, drinking fountains, public phones; vending machines and parcel or
+  luggage lockers; bike and car sharing docks, taxi ranks; bus stops and platforms; roads,
+  crossings, toll booths, lifts (the user's street is offered as the street level);
+  playgrounds, dog parks, picnic sites; homes and residential buildings (Foursquare's
+  "Home (private)" is also a privacy matter); vehicles (Foursquare's flights, trains and
+  bus lines, placed wherever someone first created them); and countries, cities and
+  neighbourhoods, which are offered as areas. Fuel stations and motorway rest areas stay:
+  OpenStreetMap keeps fuel stations too, and rest areas have restaurants.
+- **How:** a Foursquare label counts with everything below it ("Road" includes
+  "Road > Intersection"); an Overture ID counts at any level of a place's taxonomy
+  ("parking" includes parking_lot). A Foursquare place with several labels is kept if any
+  of them is a venue, and its category is the first such label (a café also filed under
+  parking stays a café). Places without a category are kept. In OpenStreetMap the style's
+  deny lists and the keys it does not read do the same; a test feeds every OpenStreetMap
+  tag in `NON_VENUES` through the import and checks that none comes out.
+- **How many** (1% sample of the first worldwide load, 2026-10-18): ~1.5 million
+  Foursquare records (4.5%; most are apartment buildings, roads and crossings, housing
+  estates, bus stops, parking, towns and neighbourhoods) and ~0.6 million Overture records
+  (1.1%; mostly ATMs and parking), ~2% of all places.
+- **Not caught:** records whose source category is wrong. "Parking Opp Laico" is filed
+  under Foursquare's "Dining and Drinking > Vineyard"; leaving out places by name
+  ("Parking …") would also drop "Parking Bar & Grill" and was not done.
+
+The same load showed category groups taken from parts of words: "garden" made ~1.4 million
+Overture furniture, hardware and home stores (hardware_home_and_garden_store) "nature",
+"opera" made tour operators and cooperatives "culture", and "music" bookshops and music
+producers. Each put them among the kinds of places that are fetched first and ranked
+highest. The rules now match those words whole, and garden shops, gardeners and forestry
+before "nature". Foursquare's shrines and cemeteries are sights now, as in the other
+sources; rental car desks are services, not stations.
 
 ## Suggestions: merging and ranking (EUR-480)
 
@@ -159,7 +199,8 @@ our flex style `src/load/osm/places.lua` and writes two staging tables into `ref
 - places: named objects with one of a list of tags, in order of precedence (`amenity`,
   `tourism`, `shop`, `leisure`, `historic`, stations, airports, natural features, landmarks
   such as towers and bridges, squares and islands, offices, crafts, healthcare), minus
-  things nobody checks into (parking, benches, ATMs, toilets, playgrounds, …). Stolpersteine
+  things nobody checks into (parking, benches, ATMs, toilets, playgrounds, …; the same
+  kinds are left out of the other sources, see "Non-venues" above). Stolpersteine
   (`memorial=stolperstein`) are excluded outright: brass stones for individual victims of
   Nazism, named after the person, ~9,000 in Berlin alone; not a place to check in, and they
   buried every other sight in the first Berlin load. Ways and
