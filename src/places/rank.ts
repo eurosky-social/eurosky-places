@@ -12,6 +12,8 @@ export interface Candidate {
   lat: number;
   lng: number;
   distance: number; // metres from the requested position
+  // Placed by its town or district alone, as far as we can tell (see withoutUnconfirmed).
+  unconfirmed?: boolean;
 }
 
 // A place as we suggest it: one entry per real place, even if several sources list it.
@@ -188,4 +190,15 @@ export function rankSuggestions(suggestions: Suggestion[]): Suggestion[] {
   return [...suggestions].sort(
     (a, b) => score(a) - score(b) || a.distance - b.distance || a.name.localeCompare(b.name),
   );
+}
+
+// Overture records that only Meta vouches for and whose address has no street are often
+// placed by their town or district alone, kilometres from where they are (EUR-480). They
+// are suggested only as part of a place that Foursquare or OpenStreetMap also has, within
+// merging distance (mergeCandidates; two records from one source never merge), which then
+// has the other source's ID and position. On their own they are left out.
+export function withoutUnconfirmed(suggestions: Suggestion[], candidates: Candidate[]): Suggestion[] {
+  const unconfirmed = new Set(candidates.filter((c) => c.unconfirmed).map((c) => c.origin));
+  if (unconfirmed.size === 0) return suggestions;
+  return suggestions.filter((s) => s.sameAs.length > 0 || !unconfirmed.has(s.origin));
 }

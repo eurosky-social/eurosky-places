@@ -58,9 +58,19 @@ export interface Extraction {
   table: string;
   columns: string[];
   select: string;
+  // Rows to leave out that can only be told once all rows are known: a condition over the
+  // local copy of the selected rows (`file`) that is true for them. `why` goes in the log.
+  leaveOut?: { why: string; where: (file: string) => string };
 }
 
-const PLACE_COLUMNS = ["dataset", "collection", "id", "name", "category", "category_group", "confidence", "lon", "lat"];
+const PLACE_COLUMNS = ["dataset", "collection", "id", "name", "category", "category_group", "confidence", "lon", "lat", "unconfirmed"];
+
+// Overture places whose source only knew the town or district are put at that area's
+// reference point, all of them on the very same coordinates: 428 records at one point in
+// central Nairobi (Tsavo West National Park and Mombasa's station among them), 86 at
+// Shibuya's ward office (EUR-480). A point shared by this many Overture records is such a
+// pile-up; a building's shops share a point a few at a time (Tokyu Plaza Shibuya: 8).
+export const PILE_UP_RECORDS = 21;
 
 export function overturePlaces(source: string, bbox: BBox | null): Extraction {
   return {
@@ -71,7 +81,14 @@ export function overturePlaces(source: string, bbox: BBox | null): Extraction {
       SELECT ${lit(DATASETS.overture)} AS dataset, 'place' AS collection, id, names.primary AS name,
              basic_category AS category,
              category_group(concat_ws(' ', basic_category, array_to_string(taxonomy.hierarchy, ' > '))) AS category_group,
-             confidence, (bbox.xmin + bbox.xmax) / 2 AS lon, (bbox.ymin + bbox.ymax) / 2 AS lat
+             confidence, (bbox.xmin + bbox.xmax) / 2 AS lon, (bbox.ymin + bbox.ymax) / 2 AS lat,
+             -- Placed by its town or district alone: only Meta vouches for it (Overture's
+             -- own entries aside) and its address has no street. The Ajinomoto Stadium
+             -- ("渋谷区", 15 km from the stadium) and Dal Lake (at Mumbai's main station)
+             -- are such records. Suggestions show them only next to a twin from another
+             -- source.
+             len(list_filter(sources, s -> s.dataset <> 'meta' AND NOT starts_with(s.dataset, 'Overture'))) = 0
+               AND coalesce(len(list_filter(addresses, a -> a.freeform IS NOT NULL)), 0) = 0 AS unconfirmed
       FROM read_parquet(${lit(source)})
       WHERE ${bboxFilter(bbox, OVERTURE_BBOX)}
         AND names.primary IS NOT NULL
@@ -82,6 +99,11 @@ export function overturePlaces(source: string, bbox: BBox | null): Extraction {
         AND len(list_filter(sources, s -> s.dataset NOT IN ('BrightQuery', 'Overture'))) > 0
         -- Parking, cash machines, homes, … (NON_VENUES in src/places/categories.ts)
         AND NOT overture_non_venue(list_append(coalesce(taxonomy.hierarchy, []::VARCHAR[]), basic_category))`,
+    leaveOut: {
+      why: `pile-ups of ${PILE_UP_RECORDS}+ at one point`,
+      where: (file) => `(lon, lat) IN (
+        SELECT lon, lat FROM read_parquet(${lit(file)}) GROUP BY lon, lat HAVING count(*) >= ${PILE_UP_RECORDS})`,
+    },
   };
 }
 
@@ -97,7 +119,7 @@ export function foursquarePlaces(source: string, cutoff: string, bbox: BBox | nu
       SELECT ${lit(DATASETS.foursquare)} AS dataset, 'place' AS collection, fsq_place_id AS id, name,
              list_last(string_split(venue_labels[1], ' > ')) AS category,
              category_group(venue_labels[1]) AS category_group,
-             NULL::FLOAT AS confidence, longitude AS lon, latitude AS lat
+             NULL::FLOAT AS confidence, longitude AS lon, latitude AS lat, false AS unconfirmed
       FROM (
         SELECT *, list_filter(fsq_category_labels, l -> NOT foursquare_non_venue(l)) AS venue_labels
         FROM read_parquet(${lit(source)})
@@ -240,13 +262,19 @@ async function stage(con: DuckDBConnection, e: Extraction, workDir: string, log:
   try {
     await con.run(`COPY (${e.select}) TO ${lit(file)} (FORMAT parquet)`);
     const copied = Date.now();
+    const where = e.leaveOut ? `WHERE NOT (${e.leaveOut.where(file)})` : "";
     const result = await con.run(
-      `INSERT INTO pg.ref_next.${e.table} (${columns}) SELECT ${columns} FROM read_parquet(${lit(file)})`,
+      `INSERT INTO pg.ref_next.${e.table} (${columns}) SELECT ${columns} FROM read_parquet(${lit(file)}) ${where}`,
     );
     const rows = Number(result.rowsChanged);
+    let left = "";
+    if (e.leaveOut) {
+      const all = Number((await con.runAndReadAll(`SELECT count(*) FROM read_parquet(${lit(file)})`)).getRows()[0]![0]);
+      left = `, ${(all - rows).toLocaleString("en")} left out as ${e.leaveOut.why}`;
+    }
     log(
       `${e.label}: ${rows.toLocaleString("en")} rows in ${seconds(started)} s ` +
-        `(reading ${seconds(started, copied)} s, writing ${seconds(copied)} s)`,
+        `(reading ${seconds(started, copied)} s, writing ${seconds(copied)} s${left})`,
     );
     return rows;
   } finally {

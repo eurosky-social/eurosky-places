@@ -4,7 +4,7 @@
 // two decimals, so everyone in it asks for the same URL and responses can be cached.
 import type { Pool } from "./db.ts";
 import { normalizeName } from "./places/names.ts";
-import { importance, mergeCandidates, type Candidate, type Suggestion } from "./places/rank.ts";
+import { importance, mergeCandidates, withoutUnconfirmed, type Candidate, type Suggestion } from "./places/rank.ts";
 import { withLiveData } from "./suggest.ts";
 
 export interface Square {
@@ -73,7 +73,7 @@ export interface SquareResponse {
 }
 
 const PLACES_SQL = `
-  SELECT p.origin, p.dataset, p.name, p.category, p.category_group,
+  SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.unconfirmed,
          ST_Y(p.geog::geometry) AS lat, ST_X(p.geog::geometry) AS lng
   FROM ref.places p
   WHERE p.geog && ST_MakeEnvelope($1, $2, $3, $4, 4326)::geography
@@ -130,8 +130,10 @@ export async function squareContents(pool: Pool, square: Square, page: number, p
     lat: r.lat,
     lng: r.lng,
     distance: 0,
+    unconfirmed: r.unconfirmed,
   }));
-  const ranked = (await withLiveData(pool, mergeCandidates(candidates))).sort(
+  // Squares are suggestions too: records placed by their town alone only with a twin.
+  const ranked = (await withLiveData(pool, withoutUnconfirmed(mergeCandidates(candidates), candidates))).sort(
     (a, b) => importance(b) - importance(a) || a.name.localeCompare(b.name) || a.origin.localeCompare(b.origin),
   );
   const slice = ranked.slice((page - 1) * pageSize, page * pageSize);

@@ -26,6 +26,8 @@ export interface FixturePlace {
   importance?: number;
   // Other names (OpenStreetMap places only), e.g. { en: "Brandenburg Gate" }.
   names?: Record<string, string>;
+  // Only Meta vouches for its position (Overture places only).
+  unconfirmed?: boolean;
 }
 
 export interface FixtureArea {
@@ -69,9 +71,9 @@ export async function loadFixtures(
       continue;
     }
     await pool.query(
-      `INSERT INTO ref_next.stage_places (dataset, collection, id, name, category, category_group, lon, lat, wikidata)
-       VALUES ($1, 'place', $2, $3, $4, $5, $6, $7, $8)`,
-      [p.dataset, p.id, p.name, p.category ?? null, p.group, lng, lat, p.wikidata ?? null],
+      `INSERT INTO ref_next.stage_places (dataset, collection, id, name, category, category_group, lon, lat, wikidata, unconfirmed)
+       VALUES ($1, 'place', $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [p.dataset, p.id, p.name, p.category ?? null, p.group, lng, lat, p.wikidata ?? null, p.unconfirmed ?? false],
     );
   }
   for (const a of data.areas ?? []) {
