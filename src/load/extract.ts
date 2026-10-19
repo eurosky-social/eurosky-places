@@ -95,8 +95,10 @@ export function overturePlaces(source: string, bbox: BBox | null): Extraction {
         AND coalesce(operating_status, 'open') = 'open'
         AND confidence >= 0.5
         -- Company-registry records (BrightQuery, since 2026-09) are legal entities at their
-        -- registered address, not venues. Keep a record only if another source confirms it.
-        AND len(list_filter(sources, s -> s.dataset NOT IN ('BrightQuery', 'Overture'))) > 0
+        -- registered address, not venues. Keep a record only if another source confirms it;
+        -- Overture's own entries do not, nor do its "Overture-signals" (third-party signals
+        -- for confidence scores, BrightQuery among them).
+        AND len(list_filter(sources, s -> s.dataset <> 'BrightQuery' AND NOT starts_with(s.dataset, 'Overture'))) > 0
         -- Parking, cash machines, homes, … (NON_VENUES in src/places/categories.ts)
         AND NOT overture_non_venue(list_append(coalesce(taxonomy.hierarchy, []::VARCHAR[]), basic_category))`,
     leaveOut: {

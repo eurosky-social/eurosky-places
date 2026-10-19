@@ -45,7 +45,11 @@ rural Tyrol, by name + distance matching):
 
 Overture's September 2026 release added BrightQuery company-registry records (Germany,
 Italy, Denmark, US): in Berlin Mitte 13,270 of 23,003 open Overture records were
-registry-only legal entities, not venues. They are filtered.
+registry-only legal entities, not venues. They are filtered. Overture's own source entries
+do not count as confirmation, including "Overture-signals" (third-party signals behind its
+confidence scores); until 2026-10-19 they did, which let ~3% of the Overture places a load
+keeps through as registry-only records (sampled from every file of the 2026-09-23 release,
+mostly in the US).
 
 ### Non-venues: the same things left out of every source (EUR-480, decided 2026-10-18)
 

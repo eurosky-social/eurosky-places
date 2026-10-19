@@ -52,6 +52,7 @@ async function writeFixtures(target: string): Promise<SourcePaths> {
       ${overture("ov-closed", "Closed Bar", "bar", 0.9, "permanently_closed", ["meta", "Overture"], 13.4246, 52.4868)},
       ${overture("ov-unsure", "Maybe Shop", "shopping", 0.3, "open", ["meta", "Overture"], 13.4247, 52.4869)},
       ${overture("ov-registry", "Aspes Gmbh", "restaurant", 0.9, "open", ["BrightQuery", "Overture"], 13.4248, 52.4870)},
+      ${overture("ov-registry-signals", "Crouse Towing", "automotive_service", 0.9, "open", ["BrightQuery", "Overture", "Overture-signals"], 13.4249, 52.4870)},
       ${overture("ov-munich", "Far Away", "museum", 0.9, "open", ["meta", "Overture"], 11.5755, 48.1374)},
       ${overture("ov-nostatus", "Hugendubel", "bookstore", 0.6, null, ["Foursquare", "Overture"], 13.4250, 52.4866)},
       ${overture("ov-garage", "Parkhaus Karstadt", "parking_garage", 0.9, "open", ["meta", "Overture"], 13.4251, 52.4865, ["travel_and_transportation", "parking", "parking_garage"])},
