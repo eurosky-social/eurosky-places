@@ -1,6 +1,6 @@
 import type { CategoryGroup } from "./categories.ts";
 import { DATASETS } from "./origin.ts";
-import { isLeadingWords, normalizeName, similarEnough } from "./names.ts";
+import { charMask, isLeadingWords, normalizeName, similarEnough } from "./names.ts";
 
 // A place as it comes from one source.
 export interface Candidate {
@@ -73,8 +73,11 @@ function compatible(a: CategoryGroup, b: CategoryGroup): boolean {
   return a === b || a === "other" || b === "other";
 }
 
-// `key` is the normalised name (normalizeName), computed once per candidate.
-export function samePlace(a: Candidate & { key: string }, b: Candidate & { key: string }): boolean {
+// `key` is the normalised name (normalizeName) and `mask` its charMask, computed once per
+// candidate; the mask only saves time.
+type Keyed = Candidate & { key: string; mask?: number };
+
+export function samePlace(a: Keyed, b: Keyed): boolean {
   if (!compatible(a.group, b.group)) return false;
   // At merge distances a flat-earth approximation is off by well under a metre and costs
   // one cosine instead of the great-circle formula's five trig calls; merging a dense
@@ -83,7 +86,7 @@ export function samePlace(a: Candidate & { key: string }, b: Candidate & { key: 
   const dx = (b.lng - a.lng) * METRES_PER_DEGREE * Math.cos(((a.lat + b.lat) / 2) * (Math.PI / 180));
   const metres = Math.sqrt(dx * dx + dy * dy);
   if (metres > MERGE_DISTANCE_M) return false;
-  if (similarEnough(a.key, b.key, MERGE_SIMILARITY)) return true;
+  if (similarEnough(a.key, b.key, MERGE_SIMILARITY, a.mask, b.mask)) return true;
   return metres <= MERGE_LEADING_WORDS_M && a.group === b.group && a.group !== "other" && isLeadingWords(a.key, b.key);
 }
 
@@ -94,34 +97,55 @@ export function samePlace(a: Candidate & { key: string }, b: Candidate & { key: 
 const CELL_M = MERGE_DISTANCE_M + 5;
 
 // Groups candidates that describe the same place. A group never holds two records from
-// the same source: within one source, two records are two places.
+// the same source: within one source, two records are two places. In a dense centre
+// (Shibuya: 500 candidates within 93 m) every candidate is compared with nearly every
+// group, so the loop avoids per-candidate allocations and sorting.
 export function mergeCandidates(candidates: Candidate[]): Suggestion[] {
-  type Member = Candidate & { key: string };
+  type Member = Keyed & { mask: number };
   const clusters: Member[][] = [];
-  const cells = new Map<string, number[]>(); // cell -> indexes of clusters with a member there
+  const sources: number[] = []; // per cluster: a bit per dataset it already has
+  const datasetBits = new Map<string, number>();
+  const cells = new Map<number, number[]>(); // cell -> indexes of clusters with a member there
   const refLat = candidates.length ? candidates.reduce((sum, c) => sum + c.lat, 0) / candidates.length : 0;
   const lngScale = (METRES_PER_DEGREE * Math.cos((refLat * Math.PI) / 180)) / CELL_M;
-  const cellOf = (c: Candidate) => [Math.floor((c.lat * METRES_PER_DEGREE) / CELL_M), Math.floor(c.lng * lngScale)];
+  // Rows and columns stay well within ±2^19 (90° is ~125,000 rows, 180° at most ~250,000
+  // columns), so row × 2^20 + column is unique.
+  const cellKey = (row: number, col: number) => row * 1_048_576 + col;
+  const seen = new Int32Array(candidates.length).fill(-1); // cluster -> last candidate that looked at it
 
-  const byDistance = [...candidates].sort((a, b) => a.distance - b.distance);
-  for (const candidate of byDistance) {
-    const c: Member = { ...candidate, key: normalizeName(candidate.name) };
-    const [row, col] = cellOf(c);
-    const nearby = new Set<number>();
+  // Equally far records in ID order, so the result does not depend on the order the
+  // database returned them in.
+  const byDistance = [...candidates].sort(
+    (a, b) => a.distance - b.distance || (a.origin < b.origin ? -1 : a.origin > b.origin ? 1 : 0),
+  );
+  for (let n = 0; n < byDistance.length; n++) {
+    const candidate = byDistance[n]!;
+    const key = normalizeName(candidate.name);
+    const c: Member = { ...candidate, key, mask: charMask(key) };
+    let bit = datasetBits.get(c.dataset);
+    if (bit === undefined) datasetBits.set(c.dataset, (bit = 1 << datasetBits.size));
+    const row = Math.floor((c.lat * METRES_PER_DEGREE) / CELL_M);
+    const col = Math.floor(c.lng * lngScale);
+    // The earliest-created matching cluster wins, as in a plain scan over all clusters:
+    // once one matches, only earlier ones are still worth comparing.
+    let home = -1;
     for (let dr = -1; dr <= 1; dr++) {
       for (let dc = -1; dc <= 1; dc++) {
-        for (const i of cells.get(`${row! + dr},${col! + dc}`) ?? []) nearby.add(i);
+        for (const i of cells.get(cellKey(row + dr, col + dc)) ?? []) {
+          if (seen[i] === n) continue;
+          seen[i] = n;
+          if ((home !== -1 && i > home) || sources[i]! & bit) continue;
+          if (clusters[i]!.some((m) => samePlace(m, c))) home = i;
+        }
       }
     }
-    // The earliest-created matching cluster wins, as in a plain scan over all clusters.
-    const home = [...nearby]
-      .sort((a, b) => a - b)
-      .find((i) => !clusters[i]!.some((m) => m.dataset === c.dataset) && clusters[i]!.some((m) => samePlace(m, c)));
-    const index = home ?? clusters.push([]) - 1;
+    const index = home !== -1 ? home : clusters.push([]) - 1;
     clusters[index]!.push(c);
-    const cell = `${row},${col}`;
-    const inCell = cells.get(cell) ?? [];
-    if (!inCell.includes(index)) cells.set(cell, [...inCell, index]);
+    sources[index] = (sources[index] ?? 0) | bit;
+    const cell = cellKey(row, col);
+    const inCell = cells.get(cell);
+    if (!inCell) cells.set(cell, [index]);
+    else if (!inCell.includes(index)) inCell.push(index);
   }
   return clusters.map((members) => {
     const ordered = [...members].sort(

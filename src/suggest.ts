@@ -41,23 +41,32 @@ const PICKED_GROUPS: CategoryGroup[] = ["food_drink", "culture", "transit", "sig
 const PICKED_CANDIDATES = 400;
 const OTHER_CANDIDATES = 100;
 
+// The position is a scalar subquery in every query rather than a CTE or a constant:
+// - a CTE referenced more than once is materialised and joined like a table, so Postgres
+//   cannot walk the spatial index nearest-first (KNN); it reads every place within the
+//   radius and sorts them instead (central Shibuya: ~20,000 rows and ~33 ms, against
+//   ~1,200 index entries and ~3 ms nearest-first);
+// - as a constant, Postgres estimates how many rows each spatial condition matches from
+//   the column's statistics, ~1 ms of planning per condition on the worldwide data, more
+//   than running the query takes outside city centres.
+// A subquery's value is fixed before the scan starts, which is all nearest-first needs.
+const POINT = "(SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)";
+const POINT_GEOMETRY = "(SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326))";
+
 const PLACES_SQL = `
-  WITH here AS (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography AS g)
-  SELECT * FROM (
+  SELECT c.origin, c.dataset, c.name, c.category, c.category_group,
+         ST_Y(c.geog::geometry) AS lat, ST_X(c.geog::geometry) AS lng, ST_Distance(c.geog, ${POINT}) AS distance
+  FROM (
     (SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.geog
-     FROM ref.places p, here
-     WHERE ST_DWithin(p.geog, here.g, $3) AND p.category_group = ANY($4)
-     ORDER BY p.geog <-> here.g LIMIT $5)
+     FROM ref.places p
+     WHERE ST_DWithin(p.geog, ${POINT}, $3) AND p.category_group = ANY($4)
+     ORDER BY p.geog <-> ${POINT} LIMIT $5)
     UNION ALL
     (SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.geog
-     FROM ref.places p, here
-     WHERE ST_DWithin(p.geog, here.g, $3) AND NOT (p.category_group = ANY($4))
-     ORDER BY p.geog <-> here.g LIMIT $6)
-  ) c
-  CROSS JOIN LATERAL (
-    SELECT ST_Y(c.geog::geometry) AS lat, ST_X(c.geog::geometry) AS lng,
-           ST_Distance(c.geog, (SELECT g FROM here)) AS distance
-  ) d`;
+     FROM ref.places p
+     WHERE ST_DWithin(p.geog, ${POINT}, $3) AND NOT (p.category_group = ANY($4))
+     ORDER BY p.geog <-> ${POINT} LIMIT $6)
+  ) c`;
 
 const AREAS_SQL = `
   SELECT d.origin, d.name, d.subtype, d.country,
@@ -65,34 +74,34 @@ const AREAS_SQL = `
   FROM ref.divisions d
   WHERE d.origin IN (
     SELECT a.origin FROM ref.areas a
-    WHERE ST_Covers(a.geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+    WHERE ST_Covers(a.geom, ${POINT_GEOMETRY})
   )
   ORDER BY d.area_m2`;
 
 // Where there is no address data nearby: the nearest named street from OpenStreetMap,
 // placed at the middle of that street segment rather than at the user.
 const OSM_STREET_SQL = `
-  WITH here AS (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography AS g)
   SELECT s.name, ST_Y(m.p) AS lat, ST_X(m.p) AS lng
-  FROM ref.streets s, here
+  FROM ref.streets s
   CROSS JOIN LATERAL (SELECT ST_LineInterpolatePoint(s.geog::geometry, 0.5) AS p) m
-  WHERE ST_DWithin(s.geog, here.g, 50)
-  ORDER BY s.geog <-> here.g LIMIT 1`;
+  WHERE ST_DWithin(s.geog, ${POINT}, 50)
+  ORDER BY s.geog <-> ${POINT} LIMIT 1`;
 
 const STREET_SQL = `
-  WITH here AS (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography AS g),
-  nearest AS (
-    SELECT a.street FROM ref.addresses a, here
-    WHERE ST_DWithin(a.geog, here.g, 100)
-    ORDER BY a.geog <-> here.g LIMIT 1
+  WITH nearest AS (
+    SELECT a.street FROM ref.addresses a
+    WHERE ST_DWithin(a.geog, ${POINT}, 100)
+    ORDER BY a.geog <-> ${POINT} LIMIT 1
   )
   SELECT n.street AS name, ST_Y(m.c) AS lat, ST_X(m.c) AS lng
   FROM nearest n
   CROSS JOIN LATERAL (
     SELECT ST_Centroid(ST_Collect(a.geog::geometry)) AS c
-    FROM ref.addresses a, here
-    WHERE a.street = n.street AND ST_DWithin(a.geog, here.g, 250)
+    FROM ref.addresses a
+    WHERE a.street = n.street AND ST_DWithin(a.geog, ${POINT}, 250)
   ) m`;
+
+export const SUGGEST_SQL = { places: PLACES_SQL, areas: AREAS_SQL, street: STREET_SQL, osmStreet: OSM_STREET_SQL };
 
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 

@@ -116,6 +116,25 @@ sources; rental car desks are services, not stations.
   Name comparison is the hot spot in dense streets (hundreds of thousands of pairs), which
   is why it bails out early (`similarEnough`); a full edit distance for every pair made
   eight concurrent requests drop to ~22 requests/s.
+- **Speed worldwide** (production host, worldwide data, 150 random points per city, the
+  old and new code alternating on the same points, 2026-10-19): p50/p95 before → after,
+  in ms: Berlin 6.2/16.6 → 5.2/8.7, Tokyo 8.1/27.8 → 6.0/7.8, New York 5.7/23.0 → 4.7/7.1,
+  Paris 9.3/25.4 → 6.0/7.4, São Paulo 4.4/13.2 → 3.6/7.0, Lagos 2.6/3.7 → 1.6/2.6, central
+  Shibuya 38.7/46.6 → 8.0/9.5, Times Square 43.1/86.4 → 7.0/13.7. Three causes:
+  - the position was a CTE used in three places, which Postgres materialises and joins
+    like a table, so it could not walk the spatial index nearest-first: it read every
+    place within 500 m and sorted them (Shibuya: ~20,000 rows, ~33 ms). Now the position
+    is a scalar subquery in each spatial condition;
+  - not a constant either: with the position known while planning, Postgres estimates
+    every spatial condition from the column statistics, ~1 ms of planning each, more than
+    the whole query outside city centres;
+  - merging: in a dense centre all 500 candidates lie within 100 m, so each is compared
+    with nearly every group. The loop no longer sorts and allocates per candidate, and a
+    32-bit character mask per name rules out most pairs before the edit distance (one edit
+    changes at most two bits). Shibuya's 500 candidates: ~14 → ~4 ms on the production
+    host (best of 30 runs), Times Square's ~9 → ~2 ms.
+  Records equally far away are now merged in ID order, so the answer no longer depends on
+  the order the database returns them in (Times Square has many records on one spot).
 
 ## Type-ahead (EUR-482)
 
@@ -174,7 +193,10 @@ Merging a dense square means thousands of places, so merging compares a place on
 places in its own and the eight neighbouring 80 m grid cells, and measures distance with a
 flat-earth approximation (one cosine) instead of the great-circle formula. A test checks
 that the grid gives exactly the same groups as comparing every pair. Hackescher Markt
-(~3,600 records): merging ~63 ms, the whole response ~100 ms.
+(~3,600 records): merging ~63 ms, the whole response ~100 ms. Since 2026-10-19 (see
+suggestions' speed) merging that square's ~4,400 records takes ~30 ms instead of ~85 ms,
+and records are merged in ID order, so a square's answer no longer depends on the order
+the database returns its places in.
 
 ## Areas: ordered by size, not mapped to levels (decided 2026-10-15)
 
