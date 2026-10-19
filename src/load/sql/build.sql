@@ -23,13 +23,14 @@ CREATE TABLE ref_next.places (
   confidence      real,
   wikidata        text,               -- Wikidata ID (Q…), so far only from OpenStreetMap
   prominence      real NOT NULL,      -- Wikipedia importance 0–1 via wikidata, else 0
+  cell            integer NOT NULL,   -- places_cell(lng, lat, 50): its ~2.2 km grid cell, for search
   geog            geography(Point, 4326) NOT NULL
 );
 
 INSERT INTO ref_next.places
 SELECT format('urn:atgeo:%s:%s:%s', s.dataset, s.collection, s.id),
        s.dataset, s.name, places_norm(s.name), s.category, s.category_group, s.confidence, s.wikidata,
-       coalesce(i.importance, 0),
+       coalesce(i.importance, 0), places_cell(s.lon, s.lat, 50),
        ST_SetSRID(ST_MakePoint(s.lon, s.lat), 4326)::geography
 FROM ref_next.stage_places s
 LEFT JOIN ref_next.stage_importance i ON i.wikidata = s.wikidata
@@ -40,9 +41,11 @@ ORDER BY ST_GeoHash(ST_SetSRID(ST_MakePoint(s.lon, s.lat), 4326), 12);
 -- here and the previous reference data stays live.
 ALTER TABLE ref_next.places ADD PRIMARY KEY (origin);
 CREATE INDEX places_geog_idx ON ref_next.places USING gist (geog);
--- Type-ahead's nearby tier: names containing the typed text, combined with the spatial
--- index (~30% of the table's size).
-CREATE INDEX places_name_trgm_idx ON ref_next.places USING gin (name_norm gin_trgm_ops);
+-- Type-ahead's nearby tier: names with a word starting with the typed text, in the grid
+-- cells around the user (db/migrations/004_grid.sql). With a space in front of the name,
+-- "a word starts with it" is one LIKE pattern ('% text%'), and its trigrams include the
+-- word-start ones ("  b", " br"), so even two letters can use the index.
+CREATE INDEX places_name_idx ON ref_next.places USING gin (cell, (' ' || name_norm) gin_trgm_ops);
 
 -- Names besides the main one: other languages and alternative names, for search.
 CREATE TABLE ref_next.place_names (
@@ -128,45 +131,75 @@ CREATE INDEX addresses_geog_idx ON ref_next.addresses USING gist (geog);
 
 -- Type-ahead's worldwide tier: every area and every place with a Wikipedia article, under
 -- all its names (other languages, alternative names), one row per word the name can be
--- found by: "Brandenburger Tor" is found by "brandenburger tor" and by "tor". Prominence
--- and position are copied in, so ranking needs no join.
+-- found by: "Brandenburger Tor" is found by "brandenburger tor" and by "tor". Everything a
+-- result shows is copied in (main name, kind, position, …), so search needs no lookups in
+-- the big tables: worldwide, those were random reads all over them.
 CREATE TABLE ref_next.search_names (
-  origin      text NOT NULL,
-  kind        text NOT NULL,          -- place | area
-  label       text NOT NULL,          -- the name as written
-  main        boolean NOT NULL,       -- label is the thing's main name
-  term        text NOT NULL,          -- places_norm(label) from one word on
-  whole       boolean NOT NULL,       -- term starts at the first word
-  prominence  real NOT NULL,
-  geog        geography(Point, 4326) NOT NULL
+  origin          text NOT NULL,
+  kind            text NOT NULL,      -- place | area
+  label           text NOT NULL,      -- the name as written
+  main            boolean NOT NULL,   -- label is the thing's main name
+  term            text NOT NULL,      -- places_norm(label) from one word on
+  whole           boolean NOT NULL,   -- term starts at the first word
+  prominence      real NOT NULL,
+  cell            integer NOT NULL,   -- places_cell(lng, lat, 2): its ~55 km grid cell
+  geog            geography(Point, 4326) NOT NULL,
+  name            text NOT NULL,      -- the main name
+  wikidata        text,
+  dataset         text,               -- places only
+  category        text,               -- places only
+  category_group  text,               -- places only
+  subtype         text,               -- areas only
+  country         text                -- areas only
 );
 
+-- Stored in term order, so the rows starting with the same letters share disk pages.
 INSERT INTO ref_next.search_names
 WITH labels AS (
-  SELECT origin, 'area' AS kind, name AS label, true AS main, prominence, point AS geog FROM ref_next.divisions
+  SELECT origin, 'area' AS kind, name AS label, true AS main, prominence, point AS geog,
+         name, wikidata, NULL AS dataset, NULL AS category, NULL AS category_group, subtype, country
+  FROM ref_next.divisions
   UNION ALL
-  SELECT dv.origin, 'area', n.value, false, dv.prominence, dv.point
+  SELECT dv.origin, 'area', n.value, false, dv.prominence, dv.point,
+         dv.name, dv.wikidata, NULL, NULL, NULL, dv.subtype, dv.country
   FROM ref_next.divisions dv
   JOIN ref_next.stage_divisions d ON dv.origin = format('urn:atgeo:overturemaps.org:division:%s', d.division_id)
   CROSS JOIN LATERAL jsonb_each_text(coalesce(d.names::jsonb, '{}'::jsonb)) AS n
   UNION ALL
-  SELECT origin, 'place', name, true, prominence, geog FROM ref_next.places WHERE prominence > 0
+  SELECT origin, 'place', name, true, prominence, geog,
+         name, wikidata, dataset, category, category_group, NULL, NULL
+  FROM ref_next.places WHERE prominence > 0
   UNION ALL
-  SELECT p.origin, 'place', pn.name, false, p.prominence, p.geog
+  SELECT p.origin, 'place', pn.name, false, p.prominence, p.geog,
+         p.name, p.wikidata, p.dataset, p.category, p.category_group, NULL, NULL
   FROM ref_next.place_names pn JOIN ref_next.places p USING (origin) WHERE p.prominence > 0
 ),
 words AS (
   SELECT l.*, string_to_array(places_norm(l.label), ' ') AS w FROM labels l
 )
-SELECT DISTINCT ON (origin, term) origin, kind, label, main, term, whole, prominence, geog
+SELECT origin, kind, label, main, term, whole, prominence,
+       places_cell(ST_X(geog::geometry), ST_Y(geog::geometry), 2), geog,
+       name, wikidata, dataset, category, category_group, subtype, country
 FROM (
-  SELECT origin, kind, label, main, prominence, geog, array_to_string(w[i:], ' ') AS term, i = 1 AS whole
-  FROM words CROSS JOIN LATERAL generate_subscripts(w, 1) AS i
-  WHERE i <= 6 AND w[i] <> ''
-) t
-ORDER BY origin, term, main DESC, whole DESC;
+  SELECT DISTINCT ON (origin, term) *
+  FROM (
+    SELECT origin, kind, label, main, prominence, geog, name, wikidata, dataset, category, category_group, subtype, country,
+           array_to_string(w[i:], ' ') AS term, i = 1 AS whole
+    FROM words CROSS JOIN LATERAL generate_subscripts(w, 1) AS i
+    WHERE i <= 6 AND w[i] <> ''
+  ) t
+  ORDER BY origin, term, main DESC, whole DESC
+) best
+ORDER BY term COLLATE "C";
 
+-- Prefix match from four letters on.
 CREATE INDEX search_names_term_idx ON ref_next.search_names (term text_pattern_ops);
+-- Two and three letters match tens of thousands of names worldwide ("de": ~160,000):
+-- these give the most prominent of them straight from the index, without sorting them all.
+CREATE INDEX search_names_prefix2_idx ON ref_next.search_names (left(term, 2), prominence DESC);
+CREATE INDEX search_names_prefix3_idx ON ref_next.search_names (left(term, 3), prominence DESC);
+-- The nearest matches: prefix match within the grid cells around the user.
+CREATE INDEX search_names_cell_idx ON ref_next.search_names (cell, term text_pattern_ops);
 -- For typos: trigram similarity on whole names.
 CREATE INDEX search_names_trgm_idx ON ref_next.search_names USING gin (term gin_trgm_ops) WHERE whole;
 

@@ -43,16 +43,22 @@ export interface SearchResult {
 const NOTABLE_PROMINENT = 200;
 const NOTABLE_NEAR = 100;
 const NOTABLE_NEAR_M = 50_000;
-// Everything else only counts nearby. In central Berlin 2 km is ~27,000 places. Two
-// letters match plenty of them within 1 km already, and cannot use the trigram index.
+// Everything else only counts nearby. In central Berlin 2 km is ~27,000 places; two
+// letters match plenty of them within 1 km already.
 const NEARBY_M = 2_000;
 const NEARBY_SHORT_M = 1_000;
 const NEARBY_LIMIT = 200;
+// Grid cells per degree (db/migrations/004_grid.sql) that the load stores with each row
+// (src/load/sql/build.sql): ~2.2 km cells for places, ~55 km cells for notable names.
+const PLACES_GRID = 50;
+const NOTABLE_GRID = 2;
 // Typo matching only once there is enough text to be wrong about, and only for close
 // enough names: trigram similarity 0.4 keeps "Berln" -> "Berlin" (0.44) but drops
-// "Café Kreuz" -> "Kreuzberg" (0.31; Postgres's own default threshold is 0.3).
+// "Café Kreuz" -> "Kreuzberg" (0.31). The pool sets pg_trgm.similarity_threshold to the
+// same value (src/db.ts), so the index already leaves out what is further away (with
+// Postgres's default of 0.3 it returned up to three times as many names to check).
+export const APPROXIMATE_MIN_SIMILARITY = 0.4;
 const APPROXIMATE_MIN_LENGTH = 4;
-const APPROXIMATE_MIN_SIMILARITY = 0.4;
 const APPROXIMATE_LIMIT = 50;
 // A notable place is often in other sources too, without a Wikipedia link; fetching
 // those lets the usual merge give it the same ID as in suggestions. Only for the notable
@@ -66,19 +72,35 @@ const DUPLICATE_M = 400;
 // Every query normalises the typed text itself, with the same function as the stored
 // names. What remains is letters, digits and single spaces, so it is safe in LIKE.
 const Q = "places_norm($1)";
+// A scalar subquery, not a CTE or a constant (see src/suggest.ts). The cells around the
+// position are computed from $2 and $3 directly: those must be constants when the query is
+// planned, so that the index lookups use them.
+const POINT = "(SELECT ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography)";
 
-const NOTABLE_COLUMNS = `origin, kind, label, main, whole, prominence,
-  ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lng`;
+const NOTABLE_COLUMNS = `origin, kind, label, main, whole, prominence, name, wikidata, dataset, category,
+  category_group, subtype, country, ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lng`;
 
-const NOTABLE_SQL = `SELECT ${NOTABLE_COLUMNS} FROM (
-    SELECT * FROM ref.search_names WHERE term LIKE ${Q} || '%' ORDER BY prominence DESC LIMIT ${NOTABLE_PROMINENT}
-  ) t`;
+// The most prominent names starting with the text, worldwide. Two letters match up to
+// ~160,000 names ("de"), three up to ~100,000: for those an index lists the names by their
+// first two or three letters, most prominent first, so the top ones come straight from it.
+// Longer text is a range of the term index: usually a few hundred names, ~60,000 for the
+// commonest words ("district"), on adjoining pages since the table is in term order.
+// Only one branch runs: once the text is known, its length conditions are constants.
+const notableBranch = (condition: string) => `(SELECT ${NOTABLE_COLUMNS} FROM ref.search_names
+    WHERE ${condition} ORDER BY prominence DESC LIMIT ${NOTABLE_PROMINENT})`;
+const NOTABLE_SQL = [
+  notableBranch(`length(${Q}) = 2 AND left(term, 2) = ${Q}`),
+  notableBranch(`length(${Q}) = 3 AND left(term, 3) = ${Q}`),
+  notableBranch(`length(${Q}) > 3 AND term LIKE ${Q} || '%'`),
+].join(" UNION ALL ");
 
-const NOTABLE_NEAR_SQL = `SELECT ${NOTABLE_COLUMNS} FROM (
-    SELECT * FROM ref.search_names
-    WHERE term LIKE ${Q} || '%' AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, ${NOTABLE_NEAR_M})
-    ORDER BY geog <-> ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography LIMIT ${NOTABLE_NEAR}
-  ) t`;
+// The nearest names starting with the text: a prefix range in each grid cell around the
+// user, instead of every match worldwide.
+const NOTABLE_NEAR_SQL = `
+  SELECT ${NOTABLE_COLUMNS} FROM ref.search_names
+  WHERE cell = ANY(places_cells($2, $3, ${NOTABLE_NEAR_M}, ${NOTABLE_GRID})) AND term LIKE ${Q} || '%'
+    AND ST_DWithin(geog, ${POINT}, ${NOTABLE_NEAR_M})
+  ORDER BY geog <-> ${POINT} LIMIT ${NOTABLE_NEAR}`;
 
 const APPROXIMATE_SQL = `SELECT ${NOTABLE_COLUMNS} FROM (
     SELECT *, similarity(term, ${Q}) AS sim FROM ref.search_names
@@ -86,45 +108,68 @@ const APPROXIMATE_SQL = `SELECT ${NOTABLE_COLUMNS} FROM (
     ORDER BY sim DESC, prominence DESC LIMIT ${APPROXIMATE_LIMIT}
   ) t`;
 
-// Places within reach whose name has a word starting with the text. From three letters
-// on, a first LIKE lets Postgres use the trigram index on name_norm (names containing
-// the text anywhere) together with the spatial index. With two letters there is no
-// trigram to look up: that condition would scan the whole trigram index, so it is left out
-// and only the spatial index is used.
-const nearbySql = (useTrigrams: boolean, radius: number) => `
-  WITH here AS (SELECT ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography AS g, ${Q} AS q)
-  SELECT p.origin, p.name_norm LIKE here.q || '%' AS starts
-  FROM ref.places p, here
-  WHERE ${useTrigrams ? "p.name_norm LIKE '%' || here.q || '%' AND" : ""}
-    ST_DWithin(p.geog, here.g, ${radius})
-    AND (' ' || p.name_norm) LIKE '% ' || here.q || '%'
-  ORDER BY p.geog <-> here.g LIMIT ${NEARBY_LIMIT}`;
-const NEARBY_SQL = nearbySql(true, NEARBY_M);
-const NEARBY_SHORT_SQL = nearbySql(false, NEARBY_SHORT_M);
+const PLACE_COLUMNS = `p.origin, p.dataset, p.name, p.category, p.category_group, p.prominence, p.wikidata,
+  ST_Y(p.geog::geometry) AS lat, ST_X(p.geog::geometry) AS lng`;
 
-const PLACES_BY_ORIGIN_SQL = `
-  SELECT origin, dataset, name, category, category_group, prominence, wikidata,
-         ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lng
-  FROM ref.places WHERE origin = ANY($1)
-  UNION
-  SELECT t.origin, t.dataset, t.name, t.category, t.category_group, t.prominence, t.wikidata,
-         ST_Y(t.geog::geometry), ST_X(t.geog::geometry)
-  FROM ref.places n
+// Places within reach with a word of their name starting with the text, one grid cell at a
+// time: the cell and the name are the two columns of one index (places_name_idx), and
+// Postgres only reads the parts of the name's trigram lists that lie in the cell. The text
+// comes in through the cells' rows on purpose: as a constant, Postgres could look the name
+// up once for the whole world and filter by cell afterwards, which is what took ~170 ms
+// for "Shibuya Sta" on the worldwide data. Only the first letters are looked up (each
+// letter is one more trigram list to read in every cell; the cell already narrows it down
+// to a few names), the whole text is checked on the rows found. Distances are on the
+// sphere (ST_Distance with false), which no index answers, so the planner cannot switch to
+// the spatial index either (in central Shibuya that would re-check ~80,000 places).
+const NEARBY_LOOKUP_LETTERS = 5;
+const nearbySql = (radius: number) => `
+  SELECT ${PLACE_COLUMNS}, p.name_norm LIKE c.text || '%' AS starts,
+         ST_Distance(p.geog, ${POINT}, false) AS distance
+  FROM (SELECT unnest(places_cells($2, $3, ${radius}, ${PLACES_GRID})) AS cell, ${Q} AS text) c
+  JOIN ref.places p
+    ON p.cell = c.cell AND (' ' || p.name_norm) LIKE '% ' || left(c.text, ${NEARBY_LOOKUP_LETTERS}) || '%'
+  WHERE strpos(' ' || p.name_norm, ' ' || c.text) > 0 AND ST_Distance(p.geog, ${POINT}, false) <= ${radius}
+  ORDER BY distance LIMIT ${NEARBY_LIMIT}`;
+const NEARBY_SQL = nearbySql(NEARBY_M);
+const NEARBY_SHORT_SQL = nearbySql(NEARBY_SHORT_M);
+
+// Records from other sources next to notable places, for merging. The positions come from
+// search_names, so this is one spatial lookup per place and nothing else.
+const TWINS_SQL = `
+  SELECT ${PLACE_COLUMNS}
+  FROM unnest($1::text[], $2::float8[], $3::float8[]) AS n(dataset, lng, lat)
   CROSS JOIN LATERAL (
-    SELECT * FROM ref.places t WHERE t.dataset <> n.dataset AND ST_DWithin(t.geog, n.geog, ${TWIN_M})
-    ORDER BY t.geog <-> n.geog LIMIT 10
-  ) t
-  WHERE n.origin = ANY($2)`;
-
-const AREAS_BY_ORIGIN_SQL = `
-  SELECT origin, name, subtype, country, prominence, wikidata,
-         ST_Y(point::geometry) AS lat, ST_X(point::geometry) AS lng
-  FROM ref.divisions WHERE origin = ANY($1)`;
+    SELECT * FROM ref.places t
+    WHERE t.dataset <> n.dataset AND ST_DWithin(t.geog, ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)::geography, ${TWIN_M})
+    ORDER BY t.geog <-> ST_SetSRID(ST_MakePoint(n.lng, n.lat), 4326)::geography LIMIT 10
+  ) p`;
 
 // Areas the user is inside count as distance 0, however far away their representative
 // point is (a federal state's point can be a hundred kilometres off).
 const CONTAINING_SQL = `
-  SELECT DISTINCT origin FROM ref.areas WHERE ST_Covers(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))`;
+  SELECT DISTINCT origin FROM ref.areas WHERE ST_Covers(geom, (SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)))`;
+
+export const SEARCH_SQL = {
+  containing: CONTAINING_SQL,
+  notable: NOTABLE_SQL,
+  notableNear: NOTABLE_NEAR_SQL,
+  approximate: APPROXIMATE_SQL,
+  nearby: NEARBY_SQL,
+  nearbyShort: NEARBY_SHORT_SQL,
+  twins: TWINS_SQL,
+};
+
+interface PlaceRow {
+  origin: string;
+  dataset: string;
+  name: string;
+  category: string | null;
+  category_group: CategoryGroup;
+  prominence: number;
+  wikidata: string | null;
+  lat: number;
+  lng: number;
+}
 
 interface NotableRow {
   origin: string;
@@ -133,6 +178,13 @@ interface NotableRow {
   main: boolean;
   whole: boolean;
   prominence: number;
+  name: string;
+  wikidata: string | null;
+  dataset: string | null;
+  category: string | null;
+  category_group: CategoryGroup | null;
+  subtype: string | null;
+  country: string | null;
   lat: number;
   lng: number;
 }
@@ -213,7 +265,7 @@ export async function search(pool: Pool, req: SearchRequest): Promise<SearchResu
     pool.query<NotableRow>(NOTABLE_SQL, [req.q]),
     here ? pool.query<NotableRow>(NOTABLE_NEAR_SQL, [req.q, ...at]) : undefined,
     here
-      ? pool.query<{ origin: string; starts: boolean }>(typed.length >= 3 ? NEARBY_SQL : NEARBY_SHORT_SQL, [req.q, ...at])
+      ? pool.query<PlaceRow & { starts: boolean }>(typed.length >= 3 ? NEARBY_SQL : NEARBY_SHORT_SQL, [req.q, ...at])
       : undefined,
     here ? pool.query<{ origin: string }>(CONTAINING_SQL, at) : undefined,
   ]);
@@ -226,38 +278,44 @@ export async function search(pool: Pool, req: SearchRequest): Promise<SearchResu
 
   // Best match per thing.
   const matches = new Map<string, Found>();
-  const kinds = new Map<string, "place" | "area">();
   for (const { row, approximate } of notable) {
-    kinds.set(row.origin, row.kind);
     matches.set(row.origin, better(matches.get(row.origin), { match: matchOf(row, approximate), label: row.label }));
   }
   for (const row of nearby?.rows ?? []) {
-    kinds.set(row.origin, "place");
     matches.set(row.origin, better(matches.get(row.origin), { match: row.starts ? "start" : "word" }));
   }
-  const ids = (kind: "place" | "area") => [...kinds].filter(([, k]) => k === kind).map(([id]) => id);
   const distanceTo = (p: { lat: number; lng: number }) => (here ? distanceMetres(here, p) : undefined);
   const preScore = (n: (typeof notable)[number]) =>
     searchScore({ match: matchOf(n.row, n.approximate), prominence: n.row.prominence, distance: distanceTo(n.row) });
+
+  // Every place found, by ID: notable ones as search_names has them, nearby ones as the
+  // places table does, and the other sources' records next to the best notable ones.
+  const places = new Map<string, PlaceRow>();
+  const areas = new Map<string, NotableRow>();
+  for (const { row } of notable) {
+    if (row.kind === "area") areas.set(row.origin, row);
+    else places.set(row.origin, { ...row, dataset: row.dataset!, category_group: row.category_group! });
+  }
+  for (const row of nearby?.rows ?? []) places.set(row.origin, row);
   const twinsFor = [
-    ...new Set(
+    ...new Map(
       notable
         .filter((n) => n.row.kind === "place")
         .sort((a, b) => preScore(b) - preScore(a))
-        .map((n) => n.row.origin),
-    ),
+        .map((n) => [n.row.origin, n.row]),
+    ).values(),
   ].slice(0, TWIN_CANDIDATES);
-
-  const [placeRows, areaRows] = await Promise.all([
-    pool.query(PLACES_BY_ORIGIN_SQL, [ids("place"), twinsFor]),
-    pool.query(AREAS_BY_ORIGIN_SQL, [ids("area")]),
-  ]);
-  const detail = new Map<string, { prominence: number; wikidata: string | null }>(
-    placeRows.rows.map((r) => [r.origin, { prominence: r.prominence, wikidata: r.wikidata }]),
-  );
+  if (twinsFor.length) {
+    const twins = await pool.query<PlaceRow>(TWINS_SQL, [
+      twinsFor.map((r) => r.dataset),
+      twinsFor.map((r) => r.lng),
+      twinsFor.map((r) => r.lat),
+    ]);
+    for (const row of twins.rows) if (!places.has(row.origin)) places.set(row.origin, row);
+  }
 
   // Places: the same place from several sources becomes one result, as in suggestions.
-  const candidates: Candidate[] = placeRows.rows.map((r) => ({
+  const candidates: Candidate[] = [...places.values()].map((r) => ({
     origin: r.origin,
     dataset: r.dataset,
     name: r.name,
@@ -287,13 +345,13 @@ export async function search(pool: Pool, req: SearchRequest): Promise<SearchResu
       ...(here ? { distance: p.distance } : {}),
       checkins: p.checkins,
     };
-    const prominence = Math.max(...all.map((id) => detail.get(id)?.prominence ?? 0));
-    const wikidata = all.map((id) => detail.get(id)?.wikidata).find((w) => w) ?? null;
+    const prominence = Math.max(...all.map((id) => places.get(id)?.prominence ?? 0));
+    const wikidata = all.map((id) => places.get(id)?.wikidata).find((w) => w) ?? null;
     results.push({ ...result, wikidata, score: searchScore({ ...result, prominence, sources: all.length }) });
   }
 
   const inside = new Set(containing?.rows.map((r) => r.origin) ?? []);
-  for (const a of areaRows.rows) {
+  for (const a of areas.values()) {
     const best = matches.get(a.origin)!;
     const distance = here ? (inside.has(a.origin) ? 0 : distanceTo(a)) : undefined;
     const result: SearchResult = {
@@ -303,7 +361,7 @@ export async function search(pool: Pool, req: SearchRequest): Promise<SearchResu
       name: a.name,
       ...(best.label && best.label !== a.name ? { matched: best.label } : {}),
       match: best.match,
-      subtype: a.subtype,
+      subtype: a.subtype!,
       country: a.country,
       lat: a.lat,
       lng: a.lng,
