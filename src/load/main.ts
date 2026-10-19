@@ -8,6 +8,7 @@ import { reattachOrphans } from "../live.ts";
 import { migrate } from "../migrate.ts";
 import { extractImportance, extractToStaging, foursquareCutoff, WIKIMEDIA_IMPORTANCE_URL } from "./extract.ts";
 import { importOsm } from "./osm.ts";
+import { prewarm } from "./prewarm.ts";
 import { buildReference, dropRollbackCopy, prepareStaging, swapReference, type BBox } from "./reference.ts";
 import {
   downloadFoursquare,
@@ -138,6 +139,14 @@ async function main(): Promise<void> {
     log(
       `live data on retired place IDs: ${reattached.orphans} places, ${reattached.moved.length} moved to the ` +
         `same place's new ID, ${reattached.unmatched.length} without a match (kept as they are)`,
+    );
+
+    const started = Date.now();
+    const warmed = await prewarm(pool);
+    log(
+      warmed === null
+        ? "no pg_prewarm extension: the first requests after this load read the new tables from disk"
+        : `prewarmed ${(warmed / 1e9).toFixed(1)} GB of the new tables in ${((Date.now() - started) / 1000).toFixed(0)} s`,
     );
   } finally {
     await pool.end();
