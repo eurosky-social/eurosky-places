@@ -2,7 +2,7 @@ import type { Pool } from "./db.ts";
 import { liveDataFor } from "./live.ts";
 import type { CategoryGroup } from "./places/categories.ts";
 import { normalizeName } from "./places/names.ts";
-import { mergeCandidates, rankSuggestions, type Candidate, type Suggestion } from "./places/rank.ts";
+import { mergeCandidates, rankSuggestions, withoutUnconfirmed, type Candidate, type Suggestion } from "./places/rank.ts";
 
 export interface SuggestRequest {
   lat: number;
@@ -54,15 +54,15 @@ const POINT = "(SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography)";
 const POINT_GEOMETRY = "(SELECT ST_SetSRID(ST_MakePoint($1, $2), 4326))";
 
 const PLACES_SQL = `
-  SELECT c.origin, c.dataset, c.name, c.category, c.category_group,
+  SELECT c.origin, c.dataset, c.name, c.category, c.category_group, c.unconfirmed,
          ST_Y(c.geog::geometry) AS lat, ST_X(c.geog::geometry) AS lng, ST_Distance(c.geog, ${POINT}) AS distance
   FROM (
-    (SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.geog
+    (SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.unconfirmed, p.geog
      FROM ref.places p
      WHERE ST_DWithin(p.geog, ${POINT}, $3) AND p.category_group = ANY($4)
      ORDER BY p.geog <-> ${POINT} LIMIT $5)
     UNION ALL
-    (SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.geog
+    (SELECT p.origin, p.dataset, p.name, p.category, p.category_group, p.unconfirmed, p.geog
      FROM ref.places p
      WHERE ST_DWithin(p.geog, ${POINT}, $3) AND NOT (p.category_group = ANY($4))
      ORDER BY p.geog <-> ${POINT} LIMIT $6)
@@ -158,8 +158,10 @@ export async function suggest(pool: Pool, req: SuggestRequest): Promise<SuggestR
     lat: r.lat,
     lng: r.lng,
     distance: r.distance,
+    unconfirmed: r.unconfirmed,
   }));
-  const ranked = rankSuggestions(await withLiveData(pool, mergeCandidates(candidates))).slice(0, req.limit);
+  const merged = withoutUnconfirmed(mergeCandidates(candidates), candidates);
+  const ranked = rankSuggestions(await withLiveData(pool, merged)).slice(0, req.limit);
 
   const s = street.rows[0] ?? (await pool.query(OSM_STREET_SQL, point)).rows[0];
   return {

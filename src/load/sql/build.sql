@@ -21,15 +21,17 @@ CREATE TABLE ref_next.places (
   category        text,
   category_group  text NOT NULL,
   confidence      real,
+  unconfirmed     boolean NOT NULL,   -- placed by its town alone (Meta only, no street): suggested only with a twin
   wikidata        text,               -- Wikidata ID (Q…), so far only from OpenStreetMap
   prominence      real NOT NULL,      -- Wikipedia importance 0–1 via wikidata, else 0
   cell            integer NOT NULL,   -- places_cell(lng, lat, 50): its ~2.2 km grid cell, for search
   geog            geography(Point, 4326) NOT NULL
 );
 
-INSERT INTO ref_next.places
+INSERT INTO ref_next.places (origin, dataset, name, name_norm, category, category_group, confidence, unconfirmed,
+                             wikidata, prominence, cell, geog)
 SELECT format('urn:atgeo:%s:%s:%s', s.dataset, s.collection, s.id),
-       s.dataset, s.name, places_norm(s.name), s.category, s.category_group, s.confidence, s.wikidata,
+       s.dataset, s.name, places_norm(s.name), s.category, s.category_group, s.confidence, s.unconfirmed, s.wikidata,
        coalesce(i.importance, 0), places_cell(s.lon, s.lat, 50),
        ST_SetSRID(ST_MakePoint(s.lon, s.lat), 4326)::geography
 FROM ref_next.stage_places s

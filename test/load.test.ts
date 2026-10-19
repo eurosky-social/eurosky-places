@@ -35,20 +35,35 @@ async function writeFixtures(target: string): Promise<SourcePaths> {
   try {
     await con.run("INSTALL spatial; LOAD spatial");
     const bbox = (x: number, y: number) => `{'xmin': ${x}, 'xmax': ${x}, 'ymin': ${y}, 'ymax': ${y}}`;
-    const overture = (id: string, name: string, cat: string, conf: number, status: string | null, sources: string[], x: number, y: number, hierarchy = [cat]) =>
+    // An address with a street, or (street null) one that names only the town.
+    const address = (street: string | null) =>
+      `[{'freeform': ${street ? `'${street}'` : "NULL"}::VARCHAR, 'locality': 'Berlin'}]`;
+    const overture = (id: string, name: string, cat: string, conf: number, status: string | null, sources: string[], x: number, y: number, hierarchy = [cat], street: string | null = "Hermannplatz 1") =>
       `('${id}', {'primary': '${name}'}, '${cat}', {'primary': '${hierarchy.at(-1)}', 'hierarchy': [${hierarchy.map((h) => `'${h}'`).join(", ")}], 'alternates': []::VARCHAR[]},
-        ${conf}, ${status ? `'${status}'` : "NULL"}, [${sources.map((s) => `{'dataset': '${s}'}`).join(", ")}], ${bbox(x, y)})`;
+        ${conf}, ${status ? `'${status}'` : "NULL"}, [${sources.map((s) => `{'dataset': '${s}'}`).join(", ")}], ${address(street)}, ${bbox(x, y)})`;
+    // Records that share one point: 21 at one (a pile-up), 20 at another.
+    const pile = (prefix: string, n: number, x: number, y: number) =>
+      `SELECT '${prefix}-' || i, {'primary': '${prefix} ' || i}, 'restaurant',
+              {'primary': 'restaurant', 'hierarchy': ['food_and_drink', 'restaurant'], 'alternates': []::VARCHAR[]},
+              0.9, 'open', [{'dataset': 'meta'}, {'dataset': 'Overture'}], ${address("Hermannplatz 1")}, ${bbox(x, y)}
+       FROM range(${n}) AS r(i)`;
     await con.run(`COPY (SELECT * FROM (VALUES
       ${overture("ov-open", "The Coffee Ape", "coffee_shop", 0.9, "open", ["meta", "Overture"], 13.4245, 52.4867)},
       ${overture("ov-closed", "Closed Bar", "bar", 0.9, "permanently_closed", ["meta", "Overture"], 13.4246, 52.4868)},
       ${overture("ov-unsure", "Maybe Shop", "shopping", 0.3, "open", ["meta", "Overture"], 13.4247, 52.4869)},
       ${overture("ov-registry", "Aspes Gmbh", "restaurant", 0.9, "open", ["BrightQuery", "Overture"], 13.4248, 52.4870)},
+      ${overture("ov-registry-signals", "Crouse Towing", "automotive_service", 0.9, "open", ["BrightQuery", "Overture", "Overture-signals"], 13.4249, 52.4870)},
       ${overture("ov-munich", "Far Away", "museum", 0.9, "open", ["meta", "Overture"], 11.5755, 48.1374)},
       ${overture("ov-nostatus", "Hugendubel", "bookstore", 0.6, null, ["Foursquare", "Overture"], 13.4250, 52.4866)},
       ${overture("ov-garage", "Parkhaus Karstadt", "parking_garage", 0.9, "open", ["meta", "Overture"], 13.4251, 52.4865, ["travel_and_transportation", "parking", "parking_garage"])},
       ${overture("ov-atm", "Sparkasse", "atm", 0.9, "open", ["meta", "Overture"], 13.4252, 52.4864, ["services_and_business", "financial_service", "atm"])},
-      ${overture("ov-apartments", "Wohnanlage Hermannplatz", "condominium", 0.9, "open", ["meta", "Overture"], 13.4253, 52.4863, ["services_and_business", "housing_or_property_service", "condominium"])}
-    ) AS t(id, names, basic_category, taxonomy, confidence, operating_status, sources, bbox)) TO '${p("overture-places.parquet")}'`);
+      ${overture("ov-apartments", "Wohnanlage Hermannplatz", "condominium", 0.9, "open", ["meta", "Overture"], 13.4253, 52.4863, ["services_and_business", "housing_or_property_service", "condominium"])},
+      ${overture("ov-town-only", "Rixdorfer Stadion", "stadium_arena", 0.9, "open", ["meta", "Overture"], 13.4254, 52.4862, ["arts_and_entertainment", "stadium_arena"], null)},
+      ${overture("ov-signals-town-only", "Neuköllner Oper", "theatre_venue", 0.9, "open", ["meta", "Overture", "Overture-signals"], 13.4255, 52.4861, ["arts_and_entertainment", "theatre_venue"], null)}
+    ) AS t(id, names, basic_category, taxonomy, confidence, operating_status, sources, addresses, bbox)
+    UNION ALL ${pile("pile-a", 21, 13.4300, 52.4900)}
+    UNION ALL ${pile("pile-b", 20, 13.4310, 52.4910)}
+    ) TO '${p("overture-places.parquet")}'`);
 
     const fsq = (id: string, name: string, x: number, y: number, closed: string | null, refreshed: string, labels: string | string[] | null, flags: string) =>
       `('${id}', '${name}', ${y}, ${x}, ${closed ? `'${closed}'` : "NULL::VARCHAR"}, '${refreshed}',
@@ -118,14 +133,18 @@ async function writeImportance(target: string): Promise<string> {
   return file;
 }
 
+const logged: string[] = [];
+
 async function load(sources: Record<string, string>) {
   await prepareStaging(pool);
+  logged.length = 0;
   const extracted = await extractToStaging({
     databaseUrl: TEST_DATABASE_URL,
     paths,
     foursquareCutoff: "2024-09-15",
     bbox: BERLIN,
     workDirectory: workDir,
+    log: (message) => logged.push(message),
   });
   await extractImportance({ databaseUrl: TEST_DATABASE_URL, source: importanceFile });
   const counts = await buildReference(pool);
@@ -156,9 +175,11 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
   assert.equal(hadPrevious, false);
   // Munich's division record is outside the Berlin bbox. Parking, the cash machine and the
   // homes are not venues and are left out; the café that Foursquare also files under
-  // parking stays, as a café.
-  assert.deepEqual(extracted, { overture_places: 2, foursquare_places: 4, divisions: 2, areas: 2, addresses: 1 });
-  const { rows } = await pool.query("SELECT origin, name, category, category_group FROM ref.places ORDER BY origin");
+  // parking stays, as a café. Of the records sharing a point, the 20 are kept (below).
+  assert.deepEqual(extracted, { overture_places: 24, foursquare_places: 4, divisions: 2, areas: 2, addresses: 1 });
+  const { rows } = await pool.query(
+    "SELECT origin, name, category, category_group FROM ref.places WHERE origin NOT LIKE '%:pile-%' ORDER BY origin",
+  );
   assert.deepEqual(rows, [
     { origin: "urn:atgeo:foursquare.com:place:fsq-cafe-with-parking", name: "Café am Parkhaus", category: "Cafe", category_group: "food_drink" },
     { origin: "urn:atgeo:foursquare.com:place:fsq-noflags", name: "Zapfhahn", category: "Pub", category_group: "food_drink" },
@@ -166,8 +187,10 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
     { origin: "urn:atgeo:foursquare.com:place:fsq-uncategorised", name: "Späti", category: null, category_group: "other" },
     { origin: "urn:atgeo:overturemaps.org:place:ov-nostatus", name: "Hugendubel", category: "bookstore", category_group: "shopping" },
     { origin: "urn:atgeo:overturemaps.org:place:ov-open", name: "The Coffee Ape", category: "coffee_shop", category_group: "food_drink" },
+    { origin: "urn:atgeo:overturemaps.org:place:ov-signals-town-only", name: "Neuköllner Oper", category: "theatre_venue", category_group: "culture" },
+    { origin: "urn:atgeo:overturemaps.org:place:ov-town-only", name: "Rixdorfer Stadion", category: "stadium_arena", category_group: "culture" },
   ]);
-  assert.equal(counts.places, 6);
+  assert.equal(counts.places, 28);
   assert.equal(counts.divisions, 2);
   assert.equal(counts.addresses, 1);
   // Live data is not touched by a load.
@@ -175,6 +198,37 @@ test("a load keeps only current, confirmed venues inside the area", async () => 
   assert.equal(live.rows[0].n, 1);
   // The local copies the extraction goes through are gone.
   assert.deepEqual(await readdir(workDir), []);
+});
+
+test("Overture records piled up on one point are left out, from 21 at the same point", async () => {
+  const { rows } = await pool.query(
+    `SELECT split_part(origin, ':', 5) LIKE 'pile-a-%' AS a, count(*)::int AS n
+     FROM ref.places WHERE origin LIKE '%:pile-%' GROUP BY 1 ORDER BY 1`,
+  );
+  assert.deepEqual(rows, [{ a: false, n: 20 }]);
+  assert.ok(
+    logged.some((m) => /^Overture places: 24 rows .*, 21 left out as pile-ups of 21\+ at one point\)$/.test(m)),
+    logged.join("\n"),
+  );
+});
+
+test("Overture records placed by their town alone (only Meta, no street) are marked unconfirmed", async () => {
+  const { rows } = await pool.query(
+    "SELECT origin, unconfirmed FROM ref.places WHERE origin NOT LIKE '%:pile-%' ORDER BY origin",
+  );
+  assert.deepEqual(
+    rows.map((r) => [r.origin.split(":").at(-1), r.unconfirmed]),
+    [
+      ["fsq-cafe-with-parking", false],
+      ["fsq-noflags", false],
+      ["fsq-station", false],
+      ["fsq-uncategorised", false],
+      ["ov-nostatus", false], // Foursquare too
+      ["ov-open", false], // only Meta, but with a street address
+      ["ov-signals-town-only", true], // Overture's signals are not another source
+      ["ov-town-only", true],
+    ],
+  );
 });
 
 test("large boundary outlines are cut into pieces that still answer point lookups", async () => {
@@ -247,7 +301,7 @@ test("a second load keeps the previous one for rollback", async () => {
   const latest = await pool.query("SELECT sources, bbox, counts FROM meta.releases ORDER BY id DESC LIMIT 1");
   assert.deepEqual(latest.rows[0].sources, { overture: "fixture-2", foursquare: "fixture-2" });
   assert.deepEqual(latest.rows[0].bbox, [...BERLIN]);
-  assert.equal(latest.rows[0].counts.places, 6);
+  assert.equal(latest.rows[0].counts.places, 28);
 
   await rollbackReference(pool);
   const after = await pool.query("SELECT sources FROM meta.releases ORDER BY id DESC LIMIT 1");
@@ -291,5 +345,5 @@ test("a source with duplicate IDs fails the load and leaves the served data alon
                            ('foursquare.com', 'place', 'dup', 'B', 'other', 13.5, 52.5)`);
   await assert.rejects(buildReference(pool), /could not create unique index|duplicate key/);
   const served = await pool.query("SELECT count(*)::int AS n FROM ref.places");
-  assert.equal(served.rows[0].n, 6);
+  assert.equal(served.rows[0].n, 28);
 });

@@ -15,7 +15,10 @@ CREATE UNLOGGED TABLE ref_next.stage_places (
   confidence      real,
   lon             double precision NOT NULL,
   lat             double precision NOT NULL,
-  wikidata        text
+  wikidata        text,
+  -- Placed by its town alone, as far as we can tell (src/load/extract.ts): suggestions
+  -- show it only next to a twin from another source.
+  unconfirmed     boolean NOT NULL DEFAULT false
 );
 
 CREATE UNLOGGED TABLE ref_next.stage_areas (

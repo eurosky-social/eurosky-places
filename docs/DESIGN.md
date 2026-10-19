@@ -30,7 +30,7 @@ Events are out of scope; they are handled by a separate component.
 | Source | What we take | Filters at load time |
 |---|---|---|
 | Foursquare Open Source Places (Apache 2.0, gated on Hugging Face) | venues | open, confirmed in the two years before the release, no `unresolved_flags`, not a non-venue (below) |
-| Overture places (CDLA-Permissive 2.0) | venues | open or unknown status, confidence ≥ 0.5, confirmed by a source other than the BrightQuery company registry, not a non-venue (below) |
+| Overture places (CDLA-Permissive 2.0) | venues | open or unknown status, confidence ≥ 0.5, confirmed by a source other than the BrightQuery company registry, not a non-venue (below), not one of 21 or more at the very same point (below) |
 | Overture divisions (ODbL) | district … country outlines | land only; outlines cut into ≤ 256-point pieces |
 | Overture addresses | street level | named street |
 | OpenStreetMap (ODbL), EUR-479 | venues, sights, parks, named streets | named, in categories people check into or photograph (see `src/load/osm/places.lua`) |
@@ -45,7 +45,11 @@ rural Tyrol, by name + distance matching):
 
 Overture's September 2026 release added BrightQuery company-registry records (Germany,
 Italy, Denmark, US): in Berlin Mitte 13,270 of 23,003 open Overture records were
-registry-only legal entities, not venues. They are filtered.
+registry-only legal entities, not venues. They are filtered. Overture's own source entries
+do not count as confirmation, including "Overture-signals" (third-party signals behind its
+confidence scores); until 2026-10-19 they did, which let ~3% of the Overture places a load
+keeps through as registry-only records (sampled from every file of the 2026-09-23 release,
+mostly in the US).
 
 ### Non-venues: the same things left out of every source (EUR-480, decided 2026-10-18)
 
@@ -87,6 +91,42 @@ highest. The rules now match those words whole, and garden shops, gardeners and 
 before "nature". Foursquare's shrines and cemeteries are sights now, as in the other
 sources; rental car desks are services, not stations.
 
+### Overture records placed by their town (EUR-480, decided 2026-10-19)
+
+The first worldwide load suggested the Ajinomoto Stadium in central Shibuya, 15 km from the
+stadium, Dal Lake (Kashmir) at Mumbai's main station and the Großglockner in the middle of
+Kals. All three are Overture records from Meta pages with an address that names only the
+town or district ("渋谷区", "Mumbai"), placed at that area's reference point. Two rules:
+
+- **Pile-ups are left out at load time.** Many such records land on exactly the same
+  coordinates: 428 at one point in central Nairobi (Tsavo West National Park and Mombasa's
+  station among them), 1,475 in Karachi, 714 on Lagos Island, 86 at Shibuya's ward office.
+  An Overture record sharing its point with 20 or more other Overture records (that passed
+  the other filters) is not loaded. Shops in one building share a point a few at a time
+  (Tokyu Plaza Shibuya: 8), so the line is drawn well above that; the cost is a hospital's
+  or tower's records when Overture lists hundreds of them at one point (Oak Lawn, Illinois:
+  438 doctors at a children's hospital, the hospital included; Foursquare and OpenStreetMap
+  still have it). Counted after extraction, on the local copy, since it needs every row.
+  Measured on a 5% sample of the first load: ~0.7% of Overture's places (~400,000), at
+  roughly 10,000 points worldwide.
+- **Unconfirmed records need a twin to be suggested.** Overture records that only Meta
+  vouches for (Overture's own entries, including its "signals", do not count) and whose
+  address has no street are marked `unconfirmed`. Suggestions and squares show them only as
+  part of a place that Foursquare or OpenStreetMap also has within merging distance (the
+  usual rules: 75 m, similar name, compatible kind); that place then has the other source's
+  ID and position. On their own they are left out. Search still finds them, as people may
+  look for them by name. Sampled worldwide (chunks from every Overture file, 2026-09-23
+  release): 6% of the Overture places a load keeps are unconfirmed, and only ~3% of those
+  have a twin, so ~6% of Overture's places (~3.5 million) are no longer suggested.
+  Requiring a twin for every record that only Meta vouches for would hit 75% of Overture,
+  four in five of them without a twin (Lagos Island: 418 suggestions within 500 m down to
+  59), so the street address is what separates "placed by its town" from "placed by its
+  owner".
+- **Not caught:** a record whose street address was geocoded wrongly (Barra da Tijuca,
+  20 km away, at Copacabana), and Foursquare records that users put in the wrong place
+  (Museu do Futebol at MASP). Single mislocated records like these can be hidden with an
+  override.
+
 ## Suggestions: merging and ranking (EUR-480)
 
 - **Candidates:** the 400 nearest places people check into or photograph (food and drink,
@@ -101,7 +141,8 @@ sources; rental car desks are services, not stations.
   the same source are never merged. The merged place takes the ID of the most stable
   source (Foursquare, then OSM, then Overture); the others go into `sameAs`. Known miss:
   the same station under unrelated names ("U Hermannplatz" / "Hermannplatz Berlin
-  Neukölln") stays two entries.
+  Neukölln") stays two entries. Overture records placed by their town alone
+  (`unconfirmed`, see "Data") are only suggested merged with another source's record.
 - **Ranking:** `(distance + 10 m) / (kind weight × (1 + 0.25 × extra sources) × popularity)`,
   lower first. Kind weights: food and drink, culture, transit, sights 1; nature, lodging
   0.9; shopping 0.7; other 0.5; services 0.35. Popularity `1 + ln(1 + check-ins in the
@@ -218,7 +259,8 @@ belongs to the next square) and computed from integer hundredths, so there are n
 floating-point gaps or overlaps between squares.
 
 Places are merged and ranked by importance alone (kind × source agreement × popularity),
-paged 500 at a time. Areas come with `whole` and, for partial ones, their outline clipped
+paged 500 at a time. As in suggestions, records placed by their town alone (`unconfirmed`)
+appear only merged with another source's. Areas come with `whole` and, for partial ones, their outline clipped
 to the square, which is what lets an app pick a district or city without sending its
 position. Same-named areas collapse only among the whole ones: dropping a partial area
 could drop the one the user is actually in.
