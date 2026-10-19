@@ -51,7 +51,9 @@ explicitly and belongs on the production host, not a laptop (~25 GB of downloads
 few GB so osm2pgsql keeps the node positions in memory; cap DuckDB with `DUCKDB_MEMORY_LIMIT` and
 `DUCKDB_TEMP_DIRECTORY` there, since Postgres shares the machine). A load drops the
 previous release's rollback copy before it starts building, so two copies at most are on
-disk at once. `--osm` is optional for `--bbox` loads. The OpenStreetMap file is filtered
+disk at once. After the swap it reads the tables every request needs into memory
+(`pg_prewarm`, when that extension exists: a superuser has to create it), so the first
+requests after a load do not wait on the disk. `--osm` is optional for `--bbox` loads. The OpenStreetMap file is filtered
 with osmium first, down to the named objects with a key the import style reads (and the
 nodes and members they need): that is all the style keeps, and it leaves out most of the
 planet. Unfiltered, osm2pgsql needed ~100 GB of node positions on disk and read them

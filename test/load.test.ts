@@ -15,6 +15,7 @@ import {
   swapReference,
   type BBox,
 } from "../src/load/reference.ts";
+import { prewarm, PREWARM } from "../src/load/prewarm.ts";
 import { freshDatabase, TEST_DATABASE_URL } from "./helpers/db.ts";
 
 // Small local Parquet files shaped like the real sources, so the whole load runs
@@ -207,6 +208,23 @@ test("areas get their Wikidata ID, population and Wikipedia prominence", async (
   );
   const names = await pool.query("SELECT label, term FROM ref.search_names WHERE origin LIKE '%div-country' ORDER BY term");
   assert.deepEqual(names.rows.map((r) => r.term), ["de test", "pays de test", "test", "testland"]);
+});
+
+test("prewarming reads what requests need, and skips without pg_prewarm", async () => {
+  await pool.query("DROP EXTENSION IF EXISTS pg_prewarm");
+  assert.equal(await prewarm(pool), null);
+  // Every relation it names exists after a build, so a renamed index fails here, not at
+  // the end of a production load.
+  const { rows } = await pool.query("SELECT r FROM unnest($1::text[]) AS r WHERE to_regclass(r) IS NULL", [
+    PREWARM.map((p) => p.relation),
+  ]);
+  assert.deepEqual(rows, []);
+  await pool.query("CREATE EXTENSION pg_prewarm");
+  try {
+    assert.ok((await prewarm(pool))! > 0);
+  } finally {
+    await pool.query("DROP EXTENSION pg_prewarm");
+  }
 });
 
 test("each area gets its size and a point inside it", async () => {
