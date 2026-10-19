@@ -139,6 +139,17 @@ test("without a position only notable places and areas are searched", async () =
   assert.deepEqual(await search({ q: "Café Kreuz" }), [], "too far from 'Kreuzberg' to count as a typo");
 });
 
+test("nearby places are found by the start of any word, two letters within 1 km", async () => {
+  const cafe = await search({ q: "Café Kreuz", ...HERE });
+  assert.equal(cafe.find((r) => r.name === "Café Kreuzberg")?.match, "start", "longer than the letters looked up");
+  assert.ok(!(await search({ q: "Café Kreuzx", ...HERE })).some((r) => r.name === "Café Kreuzberg"), "the whole text counts");
+  assert.ok(names(await search({ q: "Ca", ...HERE })).includes("Café Kreuzberg"), "two letters");
+  assert.ok(!names(await search({ q: "rger", ...HERE })).includes("Brandenburger Hof"), "inside a word is no match");
+  // Tempelhofer Feld is ~1.6 km away: beyond two letters' reach, within three letters'.
+  assert.ok(!names(await search({ q: "Te", ...HERE, limit: 30 })).includes("Tempelhofer Feld"));
+  assert.ok(names(await search({ q: "Tem", ...HERE, limit: 30 })).includes("Tempelhofer Feld"));
+});
+
 test("hidden places are not found", async () => {
   await setOverride(pool, `urn:atgeo:${OSM}:node:1`, { hidden: true });
   const results = (await search({ q: "Brandenb", ...HERE, limit: 30 })) as Array<Result & { group?: string }>;

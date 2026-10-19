@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { isLeadingWords, nameSimilarity, normalizeName, similarEnough } from "../src/places/names.ts";
+import { charMask, isLeadingWords, nameSimilarity, normalizeName, similarEnough } from "../src/places/names.ts";
 import { mergeCandidates, rankSuggestions, samePlace, type Candidate } from "../src/places/rank.ts";
 import { collapseAreas, type Area } from "../src/suggest.ts";
 
@@ -42,6 +42,8 @@ test("similarEnough agrees with nameSimilarity on every pair", () => {
     for (const b of names) {
       for (const min of [0.8, 0.9, 0.95]) {
         assert.equal(similarEnough(a, b, min), nameSimilarity(a, b) >= min, `${a} / ${b} @ ${min}`);
+        // The character masks only skip pairs that cannot be similar enough.
+        assert.equal(similarEnough(a, b, min, charMask(a), charMask(b)), nameSimilarity(a, b) >= min, `masks: ${a} / ${b} @ ${min}`);
       }
     }
   }
@@ -97,7 +99,8 @@ test("the grid-based merge groups exactly like comparing every pair", () => {
   // The straightforward version: scan all clusters for each candidate.
   const reference = (candidates: Candidate[]) => {
     const clusters: Array<Array<Candidate & { key: string }>> = [];
-    for (const candidate of [...candidates].sort((a, b) => a.distance - b.distance)) {
+    const order = (a: Candidate, b: Candidate) => a.distance - b.distance || (a.origin < b.origin ? -1 : a.origin > b.origin ? 1 : 0);
+    for (const candidate of [...candidates].sort(order)) {
       const c = { ...candidate, key: normalizeName(candidate.name) };
       const home = clusters.find((ms) => !ms.some((m) => m.dataset === c.dataset) && ms.some((m) => samePlace(m, c)));
       if (home) home.push(c);
@@ -126,6 +129,46 @@ test("the grid-based merge groups exactly like comparing every pair", () => {
     });
     const merged = mergeCandidates(candidates).map((s) => [s.origin, ...s.sameAs].sort().join(" ")).sort();
     assert.deepEqual(merged, reference(candidates), `round ${round}`);
+  }
+});
+
+test("character masks never rule out names within the edit budget", () => {
+  // Random edits of random names, Latin and Japanese: one edit changes at most two bits.
+  let seed = 11;
+  const random = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31);
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789 渋谷駅東口カフェスタバ";
+  const pick = () => alphabet[Math.floor(random() * alphabet.length)]!;
+  for (let i = 0; i < 5000; i++) {
+    const a = Array.from({ length: 5 + Math.floor(random() * 30) }, pick).join("");
+    let b = a;
+    for (let e = Math.floor(random() * 4); e > 0; e--) {
+      const at = Math.floor(random() * (b.length + 1));
+      const op = Math.floor(random() * 3);
+      b = op === 0 ? b.slice(0, at) + pick() + b.slice(at) : op === 1 ? b.slice(0, at) + b.slice(at + 1) : b.slice(0, at) + pick() + b.slice(at + 1);
+    }
+    for (const min of [0.8, 0.9]) {
+      assert.equal(similarEnough(a, b, min, charMask(a), charMask(b)), nameSimilarity(a, b) >= min, `${a} / ${b} @ ${min}`);
+    }
+  }
+});
+
+test("merging does not depend on the order the database returns records in", () => {
+  // Several records on exactly the same spot (a building's entrance), as at Times Square.
+  const stacked: Candidate[] = [
+    fsq("a", "Times Square", "sights", 40),
+    fsq("b", "Times Square", "sights", 40),
+    ov("c", "Times Square", "sights", 40),
+    ov("d", "Times Sq", "sights", 40),
+    fsq("e", "Café", "food_drink", 40),
+    ov("f", "Cafe", "food_drink", 40),
+  ];
+  const groups = (cs: Candidate[]) => mergeCandidates(cs).map((s) => [s.origin, ...s.sameAs].join(" "));
+  const expected = groups(stacked);
+  let seed = 3;
+  const random = () => ((seed = (seed * 1_103_515_245 + 12_345) % 2 ** 31) / 2 ** 31);
+  for (let i = 0; i < 50; i++) {
+    const shuffled = [...stacked].sort(() => random() - 0.5);
+    assert.deepEqual(groups(shuffled), expected);
   }
 });
 
