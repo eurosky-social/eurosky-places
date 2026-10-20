@@ -1,4 +1,4 @@
-# Place pins: check-ins and photo locations on atproto (draft)
+# Place pins: check-ins, and where photos and videos were taken, on atproto (draft)
 
 Status: draft for discussion with the ATGeo working group. The record is not published yet;
 its name, `social.eurosky.place.pin`, can still change, and we would happily see it become
@@ -7,8 +7,9 @@ its name, `social.eurosky.place.pin`, can still change, and we would happily see
 
 ## Summary
 
-A small record that says "this post (or these photos in it) is at this place", written next
-to the post by the app. It carries the place's identity, an ATGeo URN in `origin`, plus the
+A small record that says "this post (or these photos or videos in it) is at this place",
+written next to the post by the app. It works the same for any media and any app: it names
+the media by their blobs' content IDs, not by their position in one app's record. It carries the place's identity, an ATGeo URN in `origin`, plus the
 part of the place readers need to show it, put it on a map and group posts by it, so that no
 reader has to ask a gazetteer for every record. The fields are a subset of `org.atgeo.place`
 with the same names, and locations are `community.lexicon.location.*` objects. The author
@@ -20,8 +21,9 @@ atproto records, and an app stores the place's ID plus the subset it needs.
 
 ## Why now
 
-- Eurosky's apps want to ship it: Flashes (a photo app; ~250,000 `blue.flashes.feed.post`
-  records so far) for where photos were taken, Skeets (a Bluesky client) for check-ins.
+- Eurosky's apps want to ship it: Flashes (a photo and video app; ~250,000
+  `blue.flashes.feed.post` records so far) for where photos and videos were taken, Skeets (a
+  Bluesky client) for check-ins.
 - There is no agreed check-in record. Apps that publish one today each copy a small snapshot
   of the place into their records (name, coordinates, often an address) and store the
   place's ID in their own way: `osm://node/…` strings, `fsqPlaceId`, `osmType` + `osmId`,
@@ -51,8 +53,8 @@ atproto records, and an app stores the place's ID plus the subset it needs.
 
 | Field | Required | What |
 |---|---|---|
-| `subject` | no | `at://` URI of the post, in the same repo. Absent for a check-in without a post. |
-| `images` | no | Indexes of the post's images the place applies to. Absent: the whole post. |
+| `subject` | no | `at://` URI of the post, or of another app's photo or video record, in the same repo. Absent for a check-in without a post. |
+| `media` | no | The photos or videos the place applies to, as `{cid, mimeType}`: the blob's CID and type. Absent: the whole subject. |
 | `level` | yes | `venue`, `street`, `district`, `city`, `region` or `country`: what the author chose to share. |
 | `place.origin` | no | The place's ATGeo URN, from the source whose IDs last longest (Foursquare, then OpenStreetMap, then Overture). Absent where there is no ID, e.g. at street level. |
 | `place.name` | yes | Display name when it was pinned. |
@@ -62,8 +64,11 @@ atproto records, and an app stores the place's ID plus the subset it needs.
 | `place.relations.sameAs` | no | The place's IDs in other sources. |
 | `createdAt` | yes | |
 
-One place per record. A post whose photos were taken in two places gets two pins, each
-naming its images.
+One place per record. A post whose photos or videos were taken in two places gets two pins,
+each naming its media. Media are named by CID rather than by index, so the same field works
+for a Bluesky post's images or video, a Flashes post, or another app's media records. The
+CID is a `cid-link`, not a blob reference, so a pin never keeps media alive on the PDS that
+the post no longer uses.
 
 ## Levels
 
@@ -89,7 +94,8 @@ picked and its subtype, not a mapping.
 - The pin is a separate record (a "sidecar"), not a field in `app.bsky.feed.post` and not
   an embed: Bluesky ignores unknown embeds, and a post has one embed slot.
 - The app writes the post and its pins in one `com.atproto.repo.applyWrites` call. It
-  chooses the post's rkey itself, so `subject` is known before the write. A pin for a whole
+  chooses the post's rkey itself, so `subject` is known before the write; the media CIDs are
+  known once the blobs are uploaded, which happens first anyway. A pin for a whole
   post uses the post's rkey as its own, so readers can fetch it directly; further pins use
   new TIDs.
 - `subject` is an `at://` URI rather than a strongRef, so editing the post does not break
@@ -108,6 +114,8 @@ A reader subscribed to the collection (e.g. via Jetstream) has what it needs in 
   Writers therefore put the longest-lived ID in `origin`, and readers can re-match a pin whose
   ID has gone by its name and point.
 - **Maps:** the `geo` point and `category` are enough to cluster and draw pins.
+- **Thumbnails:** the author's DID and a media CID address the blob directly (e.g. on
+  Bluesky's image and video CDNs), so a map of photos needs no request for the post.
 - **Areas:** `within` lets readers roll pins up by district, city or country without a lookup.
 - **No index of their own:** indexes of links between records, such as Constellation, can
   answer "all pins at this place" from the `origin` field (Constellation already indexes
@@ -115,8 +123,8 @@ A reader subscribed to the collection (e.g. via Jetstream) has what it needs in 
 
 ## Size
 
-The examples below are 0.5–1.1 KB as compact JSON: about 250 MB if every Flashes post so far
-had one. Copying full place records would cost several times that and bring untyped
+The examples below are 0.5–1.3 KB as compact JSON: roughly 300 MB if every Flashes post so
+far had one. Copying full place records would cost several times that and bring untyped
 attributes and the sources' licence terms into every record.
 
 ## Privacy
@@ -127,8 +135,9 @@ attributes and the sources' licence terms into every record.
 - A street-level point is chosen near the author (eurosky-places puts it in the middle of
   that street's addresses within ~250 m), so on a long street it says which part. Apps
   should say so in the picker; a street's own midpoint would say less.
-- Photos must not carry location metadata of their own, or the level means nothing: Flashes
-  strips EXIF and GPS before upload.
+- Media must not carry location metadata of their own, or the level means nothing: apps
+  have to strip it from photos (EXIF GPS) and from videos (e.g. QuickTime location) before
+  upload.
 - Post time and place together say when someone was where. That is the point of a check-in,
   but apps should make the choice obvious.
 
@@ -151,31 +160,68 @@ attributes and the sources' licence terms into every record.
 From [places.eurosky.tech](https://places.eurosky.tech) at Hermannplatz, Berlin; the
 account is a placeholder.
 
-A venue, for two photos of a post:
+A venue, for two photos in a post:
 
 ```json
 {
   "$type": "social.eurosky.place.pin",
   "subject": "at://did:web:example.com/app.bsky.feed.post/3m5bq2xlnvc2s",
-  "images": [0, 1],
+  "media": [
+    {
+      "cid": {
+        "$link": "bafkreih4nhtkvxbwivqy6ky3h3fzzyxqrzu6fx2tvjalgd5ndkwtl6qopi"
+      },
+      "mimeType": "image/jpeg"
+    },
+    {
+      "cid": {
+        "$link": "bafkreieeszlmortvg4pmchqakxykoynno744emz2qcm5e3mesbnwhmm2sq"
+      },
+      "mimeType": "image/jpeg"
+    }
+  ],
   "level": "venue",
   "place": {
     "origin": "urn:atgeo:foursquare.com:place:4ae774f1f964a5207dab21e3",
     "name": "McDonald's",
     "category": "food_drink",
     "locations": [
-      { "$type": "community.lexicon.location.geo", "latitude": "52.48676", "longitude": "13.42456" }
+      {
+        "$type": "community.lexicon.location.geo",
+        "latitude": "52.48676",
+        "longitude": "13.42456"
+      }
     ],
     "relations": {
       "within": [
-        { "uri": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104", "name": "Deutschland", "type": "country" },
-        { "uri": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd", "name": "Berlin", "type": "region" },
-        { "uri": "urn:atgeo:overturemaps.org:division:a3862542-3cfa-4599-83ba-8a956ea1dc51", "name": "Neukölln", "type": "macrohood" },
-        { "uri": "urn:atgeo:overturemaps.org:division:ae5cf3f8-c895-438d-a515-3c4d280af49f", "name": "Hermannplatz", "type": "microhood" }
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104",
+          "name": "Deutschland",
+          "type": "country"
+        },
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd",
+          "name": "Berlin",
+          "type": "region"
+        },
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:a3862542-3cfa-4599-83ba-8a956ea1dc51",
+          "name": "Neukölln",
+          "type": "macrohood"
+        },
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:ae5cf3f8-c895-438d-a515-3c4d280af49f",
+          "name": "Hermannplatz",
+          "type": "microhood"
+        }
       ],
       "sameAs": [
-        { "uri": "urn:atgeo:openstreetmap.org:node:3167656606" },
-        { "uri": "urn:atgeo:overturemaps.org:place:adc6176b-5d09-4dac-89a7-3649b18e525e" }
+        {
+          "uri": "urn:atgeo:openstreetmap.org:node:3167656606"
+        },
+        {
+          "uri": "urn:atgeo:overturemaps.org:place:adc6176b-5d09-4dac-89a7-3649b18e525e"
+        }
       ]
     }
   },
@@ -183,24 +229,53 @@ A venue, for two photos of a post:
 }
 ```
 
-A street, for the whole post:
+A street, for a video:
 
 ```json
 {
   "$type": "social.eurosky.place.pin",
   "subject": "at://did:web:example.com/app.bsky.feed.post/3m5bq2xlnvc2s",
+  "media": [
+    {
+      "cid": {
+        "$link": "bafkreicc6k3ni3cmuzfcdrjyu4sn7n6uhdpw2puybh4pgmdc7iu6jpmcce"
+      },
+      "mimeType": "video/mp4"
+    }
+  ],
   "level": "street",
   "place": {
     "name": "Hermannplatz",
     "locations": [
-      { "$type": "community.lexicon.location.geo", "latitude": "52.4869", "longitude": "13.4252" },
-      { "$type": "community.lexicon.location.address", "street": "Hermannplatz", "locality": "Berlin", "country": "DE" }
+      {
+        "$type": "community.lexicon.location.geo",
+        "latitude": "52.4869",
+        "longitude": "13.4252"
+      },
+      {
+        "$type": "community.lexicon.location.address",
+        "street": "Hermannplatz",
+        "locality": "Berlin",
+        "country": "DE"
+      }
     ],
     "relations": {
       "within": [
-        { "uri": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104", "name": "Deutschland", "type": "country" },
-        { "uri": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd", "name": "Berlin", "type": "region" },
-        { "uri": "urn:atgeo:overturemaps.org:division:a3862542-3cfa-4599-83ba-8a956ea1dc51", "name": "Neukölln", "type": "macrohood" }
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104",
+          "name": "Deutschland",
+          "type": "country"
+        },
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd",
+          "name": "Berlin",
+          "type": "region"
+        },
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:a3862542-3cfa-4599-83ba-8a956ea1dc51",
+          "name": "Neukölln",
+          "type": "macrohood"
+        }
       ]
     }
   },
@@ -219,11 +294,19 @@ A city:
     "origin": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd",
     "name": "Berlin",
     "locations": [
-      { "$type": "community.lexicon.location.geo", "latitude": "52.51", "longitude": "13.40" }
+      {
+        "$type": "community.lexicon.location.geo",
+        "latitude": "52.51",
+        "longitude": "13.40"
+      }
     ],
     "relations": {
       "within": [
-        { "uri": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104", "name": "Deutschland", "type": "country" }
+        {
+          "uri": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104",
+          "name": "Deutschland",
+          "type": "country"
+        }
       ]
     }
   },
