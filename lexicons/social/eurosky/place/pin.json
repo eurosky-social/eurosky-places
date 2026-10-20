@@ -1,0 +1,122 @@
+{
+  "lexicon": 1,
+  "id": "social.eurosky.place.pin",
+  "description": "A place pinned to a post or to some of its images (a check-in, or where photos were taken), or a check-in on its own. Draft: see docs/place-pin.md in github.com/eurosky-social/eurosky-places.",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "description": "One place, at the precision the author chose. Carries the place's identity (origin) plus the subset of the place readers need to show and group it without asking any gazetteer. Never carries the device's own position.",
+      "record": {
+        "type": "object",
+        "required": ["place", "level", "createdAt"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "The post this pin belongs to, in the same repo. An at:// URI rather than a strongRef, so editing the post does not break the link. Absent for a check-in without a post. Writers that pin a whole post use the post's rkey as the pin's rkey, so a reader can fetch it directly."
+          },
+          "images": {
+            "type": "array",
+            "maxLength": 10,
+            "items": { "type": "integer", "minimum": 0 },
+            "description": "Zero-based indexes of the images in the subject's embed this place applies to. Absent: the place applies to the whole post."
+          },
+          "level": {
+            "type": "string",
+            "knownValues": ["venue", "street", "district", "city", "region", "country"],
+            "description": "How precisely the author chose to share where they were. Determines what the place carries and how its coordinates are rounded (see docs/place-pin.md)."
+          },
+          "place": {
+            "type": "ref",
+            "ref": "#place"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    },
+    "place": {
+      "type": "object",
+      "description": "A subset of an org.atgeo.place, with the same field names: enough to show the place, put it on a map and group posts by it. Readers that need more look the place up by its origin.",
+      "required": ["name", "locations"],
+      "properties": {
+        "origin": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 512,
+          "description": "The place's identity, as in org.atgeo.place: an ATGeo URN, urn:atgeo:{dataset}:{collection}:{id}, from the source whose IDs last longest (foursquare.com, then openstreetmap.org, then overturemaps.org). Absent for a place without a source ID, e.g. a street at street level."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1280,
+          "maxGraphemes": 128,
+          "description": "The place's display name when it was pinned."
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 64,
+          "knownValues": ["transit", "lodging", "food_drink", "culture", "nature", "sights", "shopping", "services", "other"],
+          "description": "A coarse kind, for map icons and filters. Not the source's own category."
+        },
+        "locations": {
+          "type": "array",
+          "minLength": 1,
+          "maxLength": 3,
+          "items": {
+            "type": "union",
+            "refs": [
+              "community.lexicon.location.geo",
+              "community.lexicon.location.address",
+              "community.lexicon.location.hthree"
+            ]
+          },
+          "description": "Where the place is, rounded to the level: at least one community.lexicon.location.geo point. An address carries no house number."
+        },
+        "relations": {
+          "type": "object",
+          "description": "Related places, as in org.atgeo.place.",
+          "properties": {
+            "within": {
+              "type": "array",
+              "maxLength": 8,
+              "items": { "type": "ref", "ref": "#relation" },
+              "description": "Areas that contain the place, broadest first (e.g. country, region, city, district)."
+            },
+            "sameAs": {
+              "type": "array",
+              "maxLength": 6,
+              "items": { "type": "ref", "ref": "#relation" },
+              "description": "The same place's IDs in other sources, so readers can group pins whose origins differ."
+            }
+          }
+        }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "description": "A reference to a place, as org.atgeo.place's relation.",
+      "required": ["uri"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 512,
+          "description": "The related place's identity, preferably an ATGeo URN."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 1280,
+          "maxGraphemes": 128
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "The related place's type in its dataset's own vocabulary, e.g. an Overture division subtype."
+        }
+      }
+    }
+  }
+}
