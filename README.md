@@ -21,7 +21,7 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 | Check-in counts, popularity, overrides | EUR-483 | done (`/internal/*`) |
 | Worldwide benchmark on a temporary server | EUR-484 | to do |
 | Host and monthly job (eurosky-infra) | EUR-485 | to do |
-| Shared formats with ATGeo | EUR-486 | to do |
+| Shared formats with ATGeo | EUR-486 | `org.atgeo.getPlace`; check-in format drafted ([docs/place-pin.md](docs/place-pin.md)) |
 
 ## Local development
 
@@ -181,6 +181,27 @@ curl -s localhost:3000/v1/squares/52.48,13.42
   square (GeoJSON, simplified to ~5 m): the app checks whether its own position is inside.
 - Measured on the Berlin slice: a dense square (Hackescher Markt, ~2,900 places) is ~27 KB
   gzipped for its first page and ~100 ms to build; an average central-Berlin square ~40 ms.
+
+## ATGeo: `GET /xrpc/org.atgeo.getPlace?uri=…`
+
+The ATGeo gazetteer's lookup of one place by its origin URN
+([lexicon](https://github.com/schuyler/garganorn/blob/main/garganorn/lexicon/getPlace.json)),
+so ATGeo clients can use this service as a gazetteer. It answers `{uri, record}` with an
+`org.atgeo.place` record built from the served data:
+
+- places: a `community.lexicon.location.geo` point (six decimals), the source's own
+  attributes as far as the data keeps them (an OpenStreetMap tag, an Overture or Foursquare
+  category, Wikidata ID), other names as `variants`, the containing areas in
+  `relations.within` (broadest first) and the same place in other sources in
+  `relations.sameAs`, found with the rules suggestions merge by;
+- areas (`urn:atgeo:overturemaps.org:division:…`): their representative point, subtype,
+  country, population and Wikidata ID, and the larger areas that contain them.
+
+Unknown places get `400 {"error": "PlaceNotFound"}`, as from garganorn. Answers are public
+for an hour (`Cache-Control`) and open to web apps (`Access-Control-Allow-Origin: *`); the
+lookup says nothing about where the asker is. Tests validate every answer against ATGeo's
+published lexicons. `org.atgeo.getTiles`, the other half of ATGeo's interface, is not
+served.
 
 ## Internal routes: `/internal/*`
 

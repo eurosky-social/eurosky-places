@@ -369,7 +369,9 @@ Its founding rule is that "the server must never receive information precise eno
 locate a person": no server-side search and no lookup by point. Our use case needs both,
 so we built this service and adopt ATGeo's shared formats instead (place IDs, place record
 shape, community location lexicons) and want to co-draft a check-in record format with the
-ATGeo working group (EUR-486). Endpoint B could later also speak ATGeo's tile interface.
+ATGeo working group (EUR-486). The service answers ATGeo's place lookup,
+`org.atgeo.getPlace`, with `org.atgeo.place` records; endpoint B could later also speak
+ATGeo's tile interface (`org.atgeo.getTiles`).
 
 ## Hosting (EUR-484, EUR-485)
 

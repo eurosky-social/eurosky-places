@@ -4,7 +4,12 @@ import { buildApp } from "./server.ts";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
-const app = buildApp({ pool, logger: true, internalToken: config.internalToken });
+const app = buildApp({
+  pool,
+  logger: true,
+  internalToken: config.internalToken,
+  publicBaseUrl: config.publicBaseUrl,
+});
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {

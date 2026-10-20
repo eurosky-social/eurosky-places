@@ -64,6 +64,9 @@ FROM ref_next.stage_osm_places o
 CROSS JOIN LATERAL jsonb_each_text(coalesce(o.names, '{}'::jsonb)) AS n
 WHERE n.value <> o.name
   AND ST_X(o.geom) BETWEEN -180 AND 180 AND ST_Y(o.geom) BETWEEN -90 AND 90;
+-- One place's other names (org.atgeo.getPlace's variants); without it, a full scan of the
+-- worldwide table (~150 ms).
+CREATE INDEX place_names_origin_idx ON ref_next.place_names (origin);
 
 -- Boundaries (districts up to countries). Overture's types do not line up with "city" or
 -- "district" consistently (Berlin is a region, Munich a county, New York and Brooklyn are
