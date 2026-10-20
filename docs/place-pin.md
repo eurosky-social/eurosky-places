@@ -21,9 +21,8 @@ atproto records, and an app stores the place's ID plus the subset it needs.
 
 ## Why now
 
-- Eurosky's apps want to ship it: Flashes (a photo and video app; ~250,000
-  `blue.flashes.feed.post` records so far) for where photos and videos were taken, Skeets (a
-  Bluesky client) for check-ins.
+- Apps want to ship it now: photo and video apps to say where media were taken, Bluesky
+  clients to offer check-ins, and places.eurosky.tech to answer the picker behind both.
 - There is no agreed check-in record. Apps that publish one today each copy a small snapshot
   of the place into their records (name, coordinates, often an address) and store the
   place's ID in their own way: `osm://node/…` strings, `fsqPlaceId`, `osmType` + `osmId`,
@@ -66,7 +65,7 @@ atproto records, and an app stores the place's ID plus the subset it needs.
 
 One place per record. A post whose photos or videos were taken in two places gets two pins,
 each naming its media. Media are named by CID rather than by index, so the same field works
-for a Bluesky post's images or video, a Flashes post, or another app's media records. The
+for a Bluesky post's images or video and for other apps' media records. The
 CID is a `cid-link`, not a blob reference, so a pin never keeps media alive on the PDS that
 the post no longer uses.
 
@@ -123,8 +122,8 @@ A reader subscribed to the collection (e.g. via Jetstream) has what it needs in 
 
 ## Size
 
-The examples below are 0.5–1.3 KB as compact JSON: roughly 300 MB if every Flashes post so
-far had one. Copying full place records would cost several times that and bring untyped
+The examples below are 0.5–1.3 KB as compact JSON: roughly 300 MB for a quarter of a million
+pinned posts. Copying full place records would cost several times that and bring untyped
 attributes and the sources' licence terms into every record.
 
 ## Privacy
