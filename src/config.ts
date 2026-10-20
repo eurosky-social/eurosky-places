@@ -8,6 +8,8 @@ export interface Config {
   port: number;
   // Shared secret for /internal/* (check-in listener, admin overrides); unset disables them.
   internalToken: string | undefined;
+  // The public URL answers link to, e.g. https://places.eurosky.tech; unset: from the request.
+  publicBaseUrl: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -20,6 +22,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     host: env.HOST ?? "127.0.0.1",
     port: Number(env.PORT ?? 3000),
     internalToken,
+    publicBaseUrl: env.PUBLIC_BASE_URL ? env.PUBLIC_BASE_URL.replace(/\/+$/, "") : undefined,
   };
 }
 

@@ -1,4 +1,5 @@
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from "fastify";
+import { registerAtgeoRoutes } from "./atgeo.ts";
 import type { Pool } from "./db.ts";
 import { registerInternalRoutes } from "./internal.ts";
 import { search, type SearchRequest } from "./search.ts";
@@ -12,6 +13,9 @@ export interface AppOptions {
   internalToken?: string;
   // Places per page of a square (endpoint B).
   squarePageSize?: number;
+  // This service's public URL, e.g. https://places.eurosky.tech, for links in answers;
+  // without it they are built from the request.
+  publicBaseUrl?: string;
 }
 
 // Square responses change only with a data load or live data (check-ins, overrides), so
@@ -57,7 +61,13 @@ const searchBody = {
 // Postgres error codes for a missing schema or table: no data load has run yet.
 const NO_DATA_CODES = new Set(["3F000", "42P01"]);
 
-export function buildApp({ pool, logger = false, internalToken, squarePageSize = 500 }: AppOptions): FastifyInstance {
+export function buildApp({
+  pool,
+  logger = false,
+  internalToken,
+  squarePageSize = 500,
+  publicBaseUrl,
+}: AppOptions): FastifyInstance {
   // Per-request log lines stay off: requests carry users' positions, and nothing about
   // them should end up in logs.
   const app = Fastify({
@@ -123,6 +133,7 @@ export function buildApp({ pool, logger = false, internalToken, squarePageSize =
     },
   );
 
+  registerAtgeoRoutes(app, pool, publicBaseUrl);
   if (internalToken) registerInternalRoutes(app, pool, internalToken);
 
   return app;
