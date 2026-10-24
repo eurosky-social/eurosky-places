@@ -70,6 +70,7 @@ test("nearby places are merged across sources and ranked", async () => {
   const res = await ask(HERE);
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["cache-control"], "no-store");
+  assert.equal(res.headers["access-control-allow-origin"], "*");
   const places = res.json().places as Array<Record<string, any>>;
   const names = places.map((p) => p.name);
 

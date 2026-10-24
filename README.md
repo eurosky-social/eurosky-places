@@ -233,6 +233,16 @@ lookup says nothing about where the asker is. Tests validate every answer agains
 published lexicons. `org.atgeo.getTiles`, the other half of ATGeo's interface, is not
 served.
 
+## Web apps (CORS)
+
+Web apps on any origin may call `/v1/*` from the browser. Answers, errors included, carry
+`Access-Control-Allow-Origin: *`, and preflight requests (`OPTIONS`, which a browser sends
+before it POSTs JSON) get `204` with `Access-Control-Allow-Methods` (`POST`, or `GET` for
+squares), `Access-Control-Allow-Headers: content-type` and `Access-Control-Max-Age: 86400`.
+No credentials: the endpoints need no cookies or `Authorization`. A proxy in front has to
+pass `OPTIONS` through for `/v1/*`. `org.atgeo.getPlace` is open to any origin too (a plain
+GET needs no preflight); `/internal/*` is not.
+
 ## Internal routes: `/internal/*`
 
 For our own components, not apps. Enabled only when `INTERNAL_TOKEN` is set; every request

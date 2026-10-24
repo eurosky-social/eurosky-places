@@ -67,6 +67,7 @@ test("a square holds its places, merged, with hidden ones left out", async () =>
   const res = await get(`/v1/squares/${SQUARE}`);
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["cache-control"], "public, max-age=3600");
+  assert.equal(res.headers["access-control-allow-origin"], "*");
   const body = res.json();
   assert.deepEqual(body.square, { name: SQUARE, south: 52.48, west: 13.42, north: 52.49, east: 13.43 });
 

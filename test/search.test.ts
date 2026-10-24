@@ -29,6 +29,7 @@ async function search(body: Record<string, unknown>): Promise<Result[]> {
   const res = await app.inject({ method: "POST", url: "/v1/search", payload: body });
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(res.headers["cache-control"], "no-store");
+  assert.equal(res.headers["access-control-allow-origin"], "*");
   return res.json().results;
 }
 const names = (results: Result[]) => results.map((r) => r.name);
