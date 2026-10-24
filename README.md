@@ -239,3 +239,10 @@ src/
 db/migrations/             long-lived schemas: meta (releases), live (check-in counts, overrides)
 test/                      node:test suites; load.test.ts runs a full load on local fixtures
 ```
+
+## Licence
+
+The code is licensed under the [Apache License 2.0](LICENSE). The data it serves keeps its
+sources' licences: Foursquare Open Source Places (Apache 2.0), Overture places
+(CDLA-Permissive 2.0), Overture divisions and OpenStreetMap (ODbL); see
+[docs/DESIGN.md](docs/DESIGN.md#data).
