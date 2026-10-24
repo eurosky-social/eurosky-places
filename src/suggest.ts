@@ -1,6 +1,7 @@
 import type { Pool } from "./db.ts";
 import { liveDataFor } from "./live.ts";
 import type { CategoryGroup } from "./places/categories.ts";
+import { cityStateField } from "./places/city-states.ts";
 import { normalizeName } from "./places/names.ts";
 import { mergeCandidates, rankSuggestions, withoutUnconfirmed, type Candidate, type Suggestion } from "./places/rank.ts";
 
@@ -15,6 +16,8 @@ export interface Area {
   origin: string; // urn:atgeo:overturemaps.org:division:{id}
   name: string;
   subtype: string; // Overture's type: country, region, county, locality, macrohood, …
+  // A city that Overture files as a region, like Berlin (src/places/city-states.ts).
+  cityState?: true;
   country: string | null;
   // A point inside the area: what to publish when the user picks this area.
   lat: number;
@@ -69,7 +72,7 @@ const PLACES_SQL = `
   ) c`;
 
 const AREAS_SQL = `
-  SELECT d.origin, d.name, d.subtype, d.country,
+  SELECT d.origin, d.name, d.subtype, d.country, d.wikidata,
          ST_Y(d.point::geometry) AS lat, ST_X(d.point::geometry) AS lng
   FROM ref.divisions d
   WHERE d.origin IN (
@@ -107,12 +110,17 @@ const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 // Areas come smallest first. Overture often lists one place at several levels under the
 // same name (Paris as county, municipality and city; Neukölln as borough and district);
-// only the smallest of a run of same-named areas is kept.
+// only the smallest of a run of same-named areas is kept. It stands for the whole run, so
+// it is a city-state if one of them is (Kinshasa's region is; the locality Kinshasa kept in
+// its place has another Wikidata ID).
 export function collapseAreas(areas: Area[]): Area[] {
   const result: Area[] = [];
   for (const area of areas) {
     const previous = result.at(-1);
-    if (previous && normalizeName(previous.name) === normalizeName(area.name)) continue;
+    if (previous && normalizeName(previous.name) === normalizeName(area.name)) {
+      if (area.cityState) result[result.length - 1] = { ...previous, cityState: true };
+      continue;
+    }
     result.push(area);
   }
   return result;
@@ -167,6 +175,16 @@ export async function suggest(pool: Pool, req: SuggestRequest): Promise<SuggestR
   return {
     places: ranked.map((p) => ({ ...p, lat: round6(p.lat), lng: round6(p.lng), distance: Math.round(p.distance) })),
     street: s ? { name: s.name, lat: round6(s.lat), lng: round6(s.lng) } : null,
-    areas: collapseAreas(areas.rows).map((a) => ({ ...a, lat: round6(a.lat), lng: round6(a.lng) })),
+    areas: collapseAreas(
+      areas.rows.map((a) => ({
+        origin: a.origin,
+        name: a.name,
+        subtype: a.subtype,
+        ...cityStateField(a.wikidata),
+        country: a.country,
+        lat: round6(a.lat),
+        lng: round6(a.lng),
+      })),
+    ),
   };
 }

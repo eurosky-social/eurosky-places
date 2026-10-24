@@ -189,3 +189,22 @@ test("collapseAreas keeps the smallest of a run of same-named areas", () => {
     "France/country",
   ]);
 });
+
+test("an area kept for a run of same-named areas is a city-state if one of them is", () => {
+  const area = (name: string, subtype: string, cityState?: true): Area => ({
+    origin: `urn:x:${subtype}`, name, subtype, ...(cityState ? { cityState } : {}), country: "CD", lat: 0, lng: 0,
+  });
+  // Kinshasa: the region is the city (Q3838); the same-named locality and county are not.
+  const collapsed = collapseAreas([
+    area("Mongala", "locality"),
+    area("Kinshasa", "locality"),
+    area("Kinshasa", "county"),
+    area("Kinshasa", "region", true),
+    area("RD Congo", "country"),
+  ]);
+  assert.deepEqual(collapsed.map((a) => `${a.name}/${a.subtype}/${a.cityState ?? "-"}`), [
+    "Mongala/locality/-",
+    "Kinshasa/locality/true",
+    "RD Congo/country/-",
+  ]);
+});

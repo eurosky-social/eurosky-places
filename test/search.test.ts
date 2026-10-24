@@ -21,6 +21,7 @@ interface Result {
   matched?: string;
   match: string;
   subtype?: string;
+  cityState?: boolean;
   distance?: number;
 }
 
@@ -28,6 +29,7 @@ async function search(body: Record<string, unknown>): Promise<Result[]> {
   const res = await app.inject({ method: "POST", url: "/v1/search", payload: body });
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(res.headers["cache-control"], "no-store");
+  assert.equal(res.headers["access-control-allow-origin"], "*");
   return res.json().results;
 }
 const names = (results: Result[]) => results.map((r) => r.name);
@@ -130,6 +132,17 @@ test("areas are found, the ones the user is in at distance 0", async () => {
   const [neukoelln] = await search({ q: "Neuk", ...HERE });
   assert.equal(neukoelln!.name, "Neukölln");
   assert.equal(neukoelln!.distance, 0);
+});
+
+test("a city filed as a region is marked as a city-state, other areas and places are not", async () => {
+  const berlin = await search({ q: "Berlin", ...HERE, limit: 30 });
+  assert.equal(berlin.find((r) => r.kind === "area" && r.name === "Berlin")?.cityState, true);
+  assert.ok(berlin.filter((r) => r.kind === "place").every((r) => r.cityState === undefined));
+  const brandenburg = (await search({ q: "Brandenburg", ...HERE })).find((r) => r.kind === "area")!;
+  assert.equal(brandenburg.name, "Brandenburg");
+  assert.equal(brandenburg.cityState, undefined, "a state, not a city");
+  const [kreuzberg] = (await search({ q: "Kreuzberg", ...HERE })).filter((r) => r.kind === "area");
+  assert.equal(kreuzberg!.cityState, undefined);
 });
 
 test("without a position only notable places and areas are searched", async () => {

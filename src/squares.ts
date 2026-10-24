@@ -3,6 +3,7 @@
 // filters and ranks on the device. A square is named by its south-west corner with exactly
 // two decimals, so everyone in it asks for the same URL and responses can be cached.
 import type { Pool } from "./db.ts";
+import { cityStateField } from "./places/city-states.ts";
 import { normalizeName } from "./places/names.ts";
 import { importance, mergeCandidates, withoutUnconfirmed, type Candidate, type Suggestion } from "./places/rank.ts";
 import { withLiveData } from "./suggest.ts";
@@ -55,6 +56,7 @@ export interface SquareArea {
   origin: string;
   name: string;
   subtype: string;
+  cityState?: true; // as in suggestions' areas
   country: string | null;
   lat: number;
   lng: number;
@@ -88,7 +90,7 @@ const AREAS_SQL = `
     WHERE a.geom && sq.g AND ST_Intersects(a.geom, sq.g)
     GROUP BY a.origin
   )
-  SELECT d.origin, d.name, d.subtype, d.country,
+  SELECT d.origin, d.name, d.subtype, d.country, d.wikidata,
          ST_Y(d.point::geometry) AS lat, ST_X(d.point::geometry) AS lng,
          ST_Area(h.part) >= ST_Area(sq.g) * 0.9999 AS whole,
          ST_AsGeoJSON(ST_SimplifyPreserveTopology(h.part, 0.00005), 6) AS outline
@@ -99,15 +101,20 @@ const AREAS_SQL = `
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 // Same-named areas that each cover the whole square are one choice for the user (Paris
-// as county, municipality and city); keep the smallest. Partial areas are always kept:
-// the app still has to check whether it is inside them.
+// as county, municipality and city); keep the smallest, a city-state if one of them is (see
+// collapseAreas in src/suggest.ts). Partial areas are always kept: the app still has to
+// check whether it is inside them.
 export function collapseWholeAreas(areas: SquareArea[]): SquareArea[] {
   const result: SquareArea[] = [];
-  let lastWhole: SquareArea | undefined;
+  let lastWhole = -1;
   for (const area of areas) {
     if (area.whole) {
-      if (lastWhole && normalizeName(lastWhole.name) === normalizeName(area.name)) continue;
-      lastWhole = area;
+      const previous = result[lastWhole];
+      if (previous && normalizeName(previous.name) === normalizeName(area.name)) {
+        if (area.cityState) result[lastWhole] = { ...previous, cityState: true };
+        continue;
+      }
+      lastWhole = result.length;
     }
     result.push(area);
   }
@@ -151,6 +158,7 @@ export async function squareContents(pool: Pool, square: Square, page: number, p
         origin: a.origin,
         name: a.name,
         subtype: a.subtype,
+        ...cityStateField(a.wikidata),
         country: a.country,
         lat: round6(a.lat),
         lng: round6(a.lng),

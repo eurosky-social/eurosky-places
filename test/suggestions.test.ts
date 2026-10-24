@@ -49,8 +49,8 @@ test("loads fixtures around Hermannplatz", async () => {
       { dataset: FSQ, id: "far", name: "Far Away Café", category: "Café", group: "food_drink", north: 800, east: 0 },
     ],
     areas: [
-      { id: "de", subtype: "country", name: "Testland", country: "DE", wkt: box(12, 51, 15, 54) },
-      { id: "be", subtype: "region", name: "Berlin", country: "DE", wkt: box(13, 52.3, 13.8, 52.7) },
+      { id: "de", subtype: "country", name: "Testland", country: "DE", wkt: box(12, 51, 15, 54), wikidata: "Q183" },
+      { id: "be", subtype: "region", name: "Berlin", country: "DE", wkt: box(13, 52.3, 13.8, 52.7), wikidata: "Q64" },
       // Neukölln and Kreuzberg meet at latitude 52.488, ~150 m north of the user.
       { id: "nk-borough", subtype: "locality", name: "Neukölln", country: "DE", wkt: box(13.4, 52.44, 13.47, 52.488) },
       { id: "nk", subtype: "macrohood", name: "Neukölln", country: "DE", wkt: box(13.41, 52.45, 13.46, 52.488) },
@@ -70,6 +70,7 @@ test("nearby places are merged across sources and ranked", async () => {
   const res = await ask(HERE);
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["cache-control"], "no-store");
+  assert.equal(res.headers["access-control-allow-origin"], "*");
   const places = res.json().places as Array<Record<string, any>>;
   const names = places.map((p) => p.name);
 
@@ -106,6 +107,15 @@ test("the areas are the user's own, smallest first, same names collapsed", async
   assert.deepEqual(
     north.areas.map((a: { name: string }) => a.name),
     ["Kreuzberg", "Berlin", "Testland"],
+  );
+});
+
+test("a city filed as a region is marked as a city-state, other areas are not", async () => {
+  const { areas } = (await ask(HERE)).json();
+  assert.deepEqual(
+    areas.filter((a: { cityState?: boolean }) => a.cityState !== undefined).map((a: { name: string; cityState: boolean }) => `${a.name}/${a.cityState}`),
+    ["Berlin/true"],
+    "Berlin's region is the city (Q64); the country's ID is not on the list",
   );
 });
 

@@ -104,12 +104,15 @@ test("an area comes back with the larger areas that contain it", async () => {
   assert.equal(res.statusCode, 200, res.body);
   const { record } = res.json();
   assert.equal(record.name, "Berlin");
-  assert.deepEqual(record.attributes, { subtype: "region", country: "DE", wikidata: "Q64" });
+  // Berlin's region is the city itself (src/places/city-states.ts).
+  assert.deepEqual(record.attributes, { subtype: "region", country: "DE", wikidata: "Q64", cityState: true });
   assert.deepEqual(record.relations.within, [{ uri: COUNTRY, name: "Testland", type: "country" }]);
   assert.equal(record.locations.length, 1);
   const country = (await getPlace(COUNTRY)).json().record;
   assert.deepEqual(country.attributes, { subtype: "country", country: "DE", population: 83_000_000, wikidata: "Q183" });
   assert.deepEqual(country.relations.within, []);
+  const district = (await getPlace(DISTRICT)).json().record;
+  assert.deepEqual(district.attributes, { subtype: "macrohood", country: "DE" });
 });
 
 test("answers validate against ATGeo's published lexicons", async () => {

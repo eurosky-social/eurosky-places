@@ -2,6 +2,7 @@
 // worldwide and against everything near them.
 import type { Pool } from "./db.ts";
 import type { CategoryGroup } from "./places/categories.ts";
+import { cityStateField } from "./places/city-states.ts";
 import { normalizeName } from "./places/names.ts";
 import { distanceMetres, GROUP_WEIGHT, mergeCandidates, popularity, type Candidate } from "./places/rank.ts";
 import { withLiveData } from "./suggest.ts";
@@ -31,6 +32,7 @@ export interface SearchResult {
   category?: string | null;
   group?: CategoryGroup;
   subtype?: string;
+  cityState?: true; // as in suggestions' areas
   country?: string | null;
   lat: number;
   lng: number;
@@ -362,6 +364,7 @@ export async function search(pool: Pool, req: SearchRequest): Promise<SearchResu
       ...(best.label && best.label !== a.name ? { matched: best.label } : {}),
       match: best.match,
       subtype: a.subtype!,
+      ...cityStateField(a.wikidata),
       country: a.country,
       lat: a.lat,
       lng: a.lng,
