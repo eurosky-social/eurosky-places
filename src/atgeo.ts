@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { Pool } from "./db.ts";
 import type { CategoryGroup } from "./places/categories.ts";
+import { isCityState } from "./places/city-states.ts";
 import { charMask, normalizeName } from "./places/names.ts";
 import { samePlace } from "./places/rank.ts";
 import { SEARCH_SQL } from "./search.ts";
@@ -11,7 +12,8 @@ import { SEARCH_SQL } from "./search.ts";
 // like garganorn's: community.lexicon.location points with six decimals, the source's own
 // attributes, other names as variants, containing areas broadest first. Beyond garganorn's,
 // it names the same place in the other sources (sameAs), found with the rules suggestions
-// merge by. Divisions carry their representative point rather than an outline's bounding box.
+// merge by. Divisions carry their representative point rather than an outline's bounding box,
+// and cities that Overture files as regions say so (cityState, src/places/city-states.ts).
 
 // What garganorn splits a URN into; the id is everything after the fourth colon.
 const URN = /^urn:atgeo:([^:]+):([^:]+):(.+)$/;
@@ -170,6 +172,7 @@ export async function atgeoPlace(pool: Pool, uri: string): Promise<AtgeoPlace | 
     if (division.country) attributes.country = division.country;
     if (division.population !== null) attributes.population = Number(division.population);
     if (division.wikidata) attributes.wikidata = division.wikidata;
+    if (isCityState(division.wikidata)) attributes.cityState = true;
     return {
       $type: "org.atgeo.place",
       origin: division.origin,

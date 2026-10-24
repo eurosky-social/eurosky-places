@@ -110,7 +110,7 @@ Response at Hermannplatz, Berlin (real data, shortened):
     { "origin": "urn:atgeo:overturemaps.org:division:a3862542-3cfa-4599-83ba-8a956ea1dc51",
       "name": "Neukölln", "subtype": "macrohood", "country": "DE", "lat": 52.477131, "lng": 13.442085 },
     { "origin": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd",
-      "name": "Berlin", "subtype": "region", "country": "DE", "lat": 52.506935, "lng": 13.397483 },
+      "name": "Berlin", "subtype": "region", "cityState": true, "country": "DE", "lat": 52.506935, "lng": 13.397483 },
     { "origin": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104",
       "name": "Deutschland", "subtype": "country", "country": "DE", "lat": 51.164204, "lng": 10.579249 }
   ]
@@ -126,6 +126,32 @@ Response at Hermannplatz, Berlin (real data, shortened):
   point inside each. Publish that point, not the user's, when the user picks an area.
   Types are not consistent across countries (Berlin is a `region`, Munich a `county`), so
   the list is ordered by size rather than labelled street / district / city.
+- `cityState: true` (absent otherwise) marks an area that is one of the cities Overture
+  files as regions: Berlin, Hamburg, Vienna, Prague, Moscow, Seoul, Beijing, Mexico City,
+  … ([src/places/city-states.ts](src/places/city-states.ts), by Wikidata ID).
+
+### Districts and cities
+
+An app that maps Overture's types to levels (`neighborhood`, `microhood`, `macrohood`,
+`borough` → district; `locality`, `localadmin`, `county` → city; `region`; `country`) gets
+city-states wrong: Overture files the city as a region and often its boroughs as
+localities. At Planufer in Berlin the areas are Kreuzberg (`macrohood`),
+Friedrichshain-Kreuzberg (`locality`), Berlin (`region`) and Deutschland, so the mapping
+calls Friedrichshain-Kreuzberg the city and Berlin a region; in Hamburg it calls
+Hamburg-Mitte the city. Use `cityState` to fix that:
+
+- share an area with `cityState` as the city;
+- count the city-level areas before it in the list (`locality`, `localadmin`, `county`;
+  they are smaller and inside it) as its districts: Friedrichshain-Kreuzberg,
+  Hamburg-Mitte, Seoul's districts (`county`) and neighbourhoods (`locality`);
+- some cities are filed at more than one level with the same Wikidata ID (Zagreb as a
+  `locality` and a `region`), and each of those areas has the flag: they are one city, so
+  offer only the largest of them, as the city.
+
+When same-named areas collapse into one, the one kept carries the flag if any of them did
+(Kinshasa's region and the locality Kinshasa become one `locality` with `cityState`). The
+flag is applied when the service answers, from the division's Wikidata ID, so it needs no
+data load.
 
 ## Type-ahead: `POST /v1/search`
 
@@ -156,7 +182,8 @@ Wikidata ID, or same name and kind within 400 m) is shown once.
 
 `results[]`: `kind` (`place` or `area`), `origin`, `sameAs`, `name`, `matched` (the name
 that matched, if another), `match` (`start`, `word`, `other_name`, `approximate`), for
-places `category`, `group`, `checkins`, for areas `subtype`, `country`, then `lat`, `lng`
+places `category`, `group`, `checkins`, for areas `subtype`, `cityState` (a city filed as a
+region, see [Districts and cities](#districts-and-cities)) and `country`, then `lat`, `lng`
 and, with a position, `distance` (0 for areas the user is in).
 
 ## Endpoint B: `GET /v1/squares/{lat},{lng}`
@@ -177,8 +204,9 @@ curl -s localhost:3000/v1/squares/52.48,13.42
 - `places`: as in endpoint A but without `distance`, most important first (kind, sources
   agreeing, check-ins), 500 per page; `next` links the following page.
 - `areas` (first page only): every area overlapping the square, smallest first, with
-  `whole: true` if it covers the whole square. Otherwise `outline` is the part inside the
-  square (GeoJSON, simplified to ~5 m): the app checks whether its own position is inside.
+  `cityState` as in endpoint A and `whole: true` if it covers the whole square. Otherwise
+  `outline` is the part inside the square (GeoJSON, simplified to ~5 m): the app checks
+  whether its own position is inside.
 - Measured on the Berlin slice: a dense square (Hackescher Markt, ~2,900 places) is ~27 KB
   gzipped for its first page and ~100 ms to build; an average central-Berlin square ~40 ms.
 
@@ -195,7 +223,9 @@ so ATGeo clients can use this service as a gazetteer. It answers `{uri, record}`
   `relations.within` (broadest first) and the same place in other sources in
   `relations.sameAs`, found with the rules suggestions merge by;
 - areas (`urn:atgeo:overturemaps.org:division:…`): their representative point, subtype,
-  country, population and Wikidata ID, and the larger areas that contain them.
+  country, population and Wikidata ID, `cityState: true` for a city that Overture files as
+  a region (see [Districts and cities](#districts-and-cities)), and the larger areas that
+  contain them. `relations.within` keeps Overture's types as they are (Berlin: `region`).
 
 Unknown places get `400 {"error": "PlaceNotFound"}`, as from garganorn. Answers are public
 for an hour (`Cache-Control`) and open to web apps (`Access-Control-Allow-Origin: *`); the

@@ -88,6 +88,14 @@ subtype counts as "district" or "city" differs by country (Berlin is a region, M
 county, New York and Brooklyn both localities), so the record stores the area the author
 picked and its subtype, not a mapping.
 
+Cities that Overture files as regions (Berlin, Hamburg, Vienna, Seoul, …) are the hardest
+case: their boroughs are often localities, so mapping subtypes to levels offers
+Friedrichshain-Kreuzberg as the city and Berlin as a region. eurosky-places marks those
+cities `cityState` in its answers: an app offers such an area at the `city` level and the
+city-level areas inside it (`locality`, `localadmin`, `county`) at the `district` level. That guidance only decides the `level` the author picks.
+`relations.within` still carries each area's Overture subtype as `type` (`region` for
+Berlin), so readers see the same data whichever app wrote the pin.
+
 ## Linking pins to posts
 
 - The pin is a separate record (a "sidecar"), not a field in `app.bsky.feed.post` and not

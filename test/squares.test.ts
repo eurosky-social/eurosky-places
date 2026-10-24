@@ -50,7 +50,7 @@ test("loads fixtures", async () => {
     ],
     areas: [
       { id: "de", subtype: "country", name: "Testland", country: "DE", wkt: box(12, 51, 15, 54) },
-      { id: "be", subtype: "region", name: "Berlin", country: "DE", wkt: box(13, 52.3, 13.8, 52.7) },
+      { id: "be", subtype: "region", name: "Berlin", country: "DE", wkt: box(13, 52.3, 13.8, 52.7), wikidata: "Q64" },
       { id: "be-city", subtype: "locality", name: "Berlin", country: "DE", wkt: box(13.1, 52.35, 13.75, 52.65) },
       { id: "nk", subtype: "macrohood", name: "Neukölln", country: "DE", wkt: box(13.41, 52.45, 13.46, 52.488) },
       { id: "xb", subtype: "macrohood", name: "Kreuzberg", country: "DE", wkt: box(13.36, 52.488, 13.44, 52.51) },
@@ -106,6 +106,15 @@ test("areas say whether they cover the whole square, with outlines for the rest"
   );
   assert.equal(contained.rows[0].ok, true);
   assert.ok(areas.filter((a: { whole: boolean }) => a.whole).every((a: { outline?: unknown }) => a.outline === undefined));
+});
+
+test("the area kept for a city-state's same-named areas is marked as the city-state", async () => {
+  const { areas } = (await get(`/v1/squares/${SQUARE}`)).json();
+  assert.deepEqual(
+    areas.filter((a: { cityState?: boolean }) => a.cityState).map((a: { name: string; subtype: string }) => `${a.name}/${a.subtype}`),
+    ["Berlin/locality"],
+    "the region Berlin (Q64) collapses into the locality Berlin, which stands for it",
+  );
 });
 
 test("pages carry the next link; areas only on the first page", async () => {

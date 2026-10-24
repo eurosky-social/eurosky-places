@@ -289,6 +289,22 @@ what an app publishes when the user picks that area.
 The street comes from Overture addresses: the street of the nearest address within 100 m,
 with the middle of that street's addresses within 250 m as its point.
 
+### City-states (decided 2026-10-24)
+
+Apps map the types to levels anyway, and where the city is a `region` they got both
+levels wrong: Overture often files the city's boroughs as localities
+(Friedrichshain-Kreuzberg, Hamburg-Mitte, Bucharest's sectors, Seoul's neighbourhoods), so
+the borough became the city and the city a region. Areas whose Wikidata ID is on a curated list of such cities
+(`src/places/city-states.ts`, 69 cities) now carry `cityState: true`; apps offer them as
+the city and the city-level areas inside them as districts (README, "Districts and
+cities"). A city is on the list only if the region's Wikidata item is the city itself, checked
+against Wikidata and against the served data, where it has to be a `region`. A list rather
+than a rule on Wikidata's classes: those call Tokyo and Chongqing cities too, whose regions
+contain other cities, while states such as Bremen or the Brussels-Capital Region are items
+of their own, separate from their cities. The flag is set when answering, from the
+division's Wikidata ID, a set lookup on a column the queries read anyway, so the list can
+change without a data load.
+
 ## OpenStreetMap (EUR-479)
 
 osm2pgsql reads the OSM file (an extract for development, the planet in production) with
