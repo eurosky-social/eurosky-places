@@ -1,0 +1,423 @@
+{
+ "reviewed": "2026-10-24",
+ "area": "Berlin (13.08,52.33,13.76,52.68)",
+ "checked": 603,
+ "rejected": [
+  {
+   "source": "overture",
+   "id": "de5a1907-41ee-4a0f-b400-f8cfad5c3c27",
+   "name": "Albert Schweitzer Stiftung",
+   "handle": "albert-schweitzer-stiftung.de",
+   "did": "did:plc:e7g34rme5db36j4pzu73rihe",
+   "reason": "different foundation"
+  },
+  {
+   "source": "overture",
+   "id": "b1469642-b645-44d5-bcc3-dd0b78c9bca5",
+   "name": "Albert Schweitzer Stiftung",
+   "handle": "albert-schweitzer-stiftung.de",
+   "did": "did:plc:e7g34rme5db36j4pzu73rihe",
+   "reason": "different foundation"
+  },
+  {
+   "source": "overture",
+   "id": "29c6246c-90d1-405f-9bee-03d1d74cbe85",
+   "name": "Albert Schweizer Stiftung Bereutes Wohnen",
+   "handle": "albert-schweitzer-stiftung.de",
+   "did": "did:plc:e7g34rme5db36j4pzu73rihe",
+   "reason": "different foundation"
+  },
+  {
+   "source": "overture",
+   "id": "dc252cee-1efa-4214-913d-6b69aaadd91c",
+   "name": "Karl-Marx-Platz",
+   "handle": "avaaz.org",
+   "did": "did:plc:kd2xcea7lo6hqr7wubw6a7b4",
+   "reason": "place is a public square"
+  },
+  {
+   "source": "overture",
+   "id": "d44b282f-7f0c-4ab8-a3bc-cccd304c708b",
+   "name": "Freunde der Berliner Philharmoniker e.V.",
+   "handle": "berliner-philharmoniker.de",
+   "did": "did:plc:uvph2ayrdgf3eofwhffqghed",
+   "reason": "separate friends' association"
+  },
+  {
+   "source": "overture",
+   "id": "644cdc1c-0b58-4082-a94c-8dc109bf6723",
+   "name": "Bundespolizeirevier Bundesministerium des Innern",
+   "handle": "bmi.bund.de",
+   "did": "did:plc:zd463uaiwks3w6nwk4v3yol5",
+   "reason": "federal police post"
+  },
+  {
+   "source": "overture",
+   "id": "34893443-e6eb-4e01-b72f-b800d218f553",
+   "name": "Beumer and Lutum",
+   "handle": "boell.de",
+   "did": "did:plc:cdpxefajbovtpaja4jzdhpbp",
+   "reason": "caterer"
+  },
+  {
+   "source": "overture",
+   "id": "515b7eae-50e3-440a-a642-8667cc39e1dc",
+   "name": "BERLIN KonTOUREN - Reichstag, Glaskuppel und Regierungsviertel“",
+   "handle": "bundestag.de",
+   "did": "did:plc:sds623mpvqx2gcexpnt4mn3u",
+   "reason": "tour operator"
+  },
+  {
+   "source": "overture",
+   "id": "a3fa6b4f-745b-45ff-9175-44b532b0005b",
+   "name": "Berlin Meuer",
+   "handle": "bundestag.de",
+   "did": "did:plc:sds623mpvqx2gcexpnt4mn3u",
+   "reason": "unclear entry"
+  },
+  {
+   "source": "overture",
+   "id": "5af7dbf2-295b-44fc-89e1-189dd24e4c10",
+   "name": "Bernd Westphal",
+   "handle": "bundestag.de",
+   "did": "did:plc:sds623mpvqx2gcexpnt4mn3u",
+   "reason": "an MP's office"
+  },
+  {
+   "source": "overture",
+   "id": "637d3aef-9024-4fc3-944d-989e16e2ff71",
+   "name": "German European Security Association",
+   "handle": "bundestag.de",
+   "did": "did:plc:sds623mpvqx2gcexpnt4mn3u",
+   "reason": "other association"
+  },
+  {
+   "source": "overture",
+   "id": "f4779329-4f2d-431b-a41c-748f7310978e",
+   "name": "Evangelische Kirche in Deutschland Kirchen, evangelische",
+   "handle": "eaberlin.de",
+   "did": "did:plc:xlmztlf2sjul2e6vnd7ecnom",
+   "reason": "different church body"
+  },
+  {
+   "source": "overture",
+   "id": "590c4f1d-23f9-48f4-b9a9-541aed0e370b",
+   "name": "Eisbär GmbH",
+   "handle": "eisbaeren.de",
+   "did": "did:plc:4doc4u7c5downqvre67dnn66",
+   "reason": "unrelated company"
+  },
+  {
+   "source": "overture",
+   "id": "bd59ee4e-0757-486f-8bfa-9972805a9811",
+   "name": "Diversity On",
+   "handle": "g-ba.de",
+   "did": "did:plc:msvgnztpnss5gshimbtppofx",
+   "reason": "unrelated firm"
+  },
+  {
+   "source": "overture",
+   "id": "9d205bcc-b350-425e-b89f-275cf72c2562",
+   "name": "Pizzeria Toros",
+   "handle": "imgur.com",
+   "did": "did:plc:yupgjc5bn4fs3s45vgdmncaw",
+   "reason": "image host, not the pizzeria"
+  },
+  {
+   "source": "overture",
+   "id": "ef2ce7fe-2b25-41ca-9eb8-82e64c6be44b",
+   "name": "Kv Telematik GmbH",
+   "handle": "kbv.de",
+   "did": "did:plc:rf4opd5dibu7qtzsmc63hzn5",
+   "reason": "place is a subsidiary (KV Telematik)"
+  },
+  {
+   "source": "overture",
+   "id": "da8601b9-1546-4c83-816c-0441423ed2aa",
+   "name": "Brian Kelly",
+   "handle": "kickstarter.com",
+   "did": "did:plc:z6qkucgdsz4frd7qin22klfy",
+   "reason": "crowdfunding page, not the place"
+  },
+  {
+   "source": "overture",
+   "id": "d7d6b7e7-5196-4646-99b3-4c67bad80bfa",
+   "name": "SXF Studio",
+   "handle": "ko-fi.com",
+   "did": "did:plc:xvh3l6vzbtp3jsefjx6pnexu",
+   "reason": "tip-jar page, not the studio"
+  },
+  {
+   "source": "overture",
+   "id": "1d987888-fded-43e2-b146-76645b2b088d",
+   "name": "Librería La Escalera",
+   "handle": "librarycat.org",
+   "did": "did:plc:qwpv2k67vdwq5wjkk35zlirw",
+   "reason": "catalogue host, not the bookshop"
+  },
+  {
+   "source": "overture",
+   "id": "4573bc24-90be-48d6-bc7b-06251d43d762",
+   "name": "Raoul-Wallenberg-Straße Berlin",
+   "handle": "librarything.com",
+   "did": "did:plc:p274nhadofymq2wdnfibpq3o",
+   "reason": "book site, place is a street"
+  },
+  {
+   "source": "overture",
+   "id": "58a07837-36ca-4520-a8cc-5e836bcf3d21",
+   "name": "Biesenhorster Sand",
+   "handle": "nabu.de",
+   "did": "did:plc:ktmi6vdmin5hvofexq4oqv76",
+   "reason": "nature reserve"
+  },
+  {
+   "source": "overture",
+   "id": "28be05f2-dc39-4a6b-8704-219f7aa65b9f",
+   "name": "A7 Telemedia Berlin",
+   "handle": "o2online.de",
+   "did": "did:plc:fifz336br5ptgr7owyaxjygn",
+   "reason": "independent shop"
+  },
+  {
+   "source": "overture",
+   "id": "9b8f306e-3809-4738-b8a8-108b4a38c29e",
+   "name": "Ayyildiz Handyshop O2 Quality Partner Berlin",
+   "handle": "o2online.de",
+   "did": "did:plc:fifz336br5ptgr7owyaxjygn",
+   "reason": "independent shop"
+  },
+  {
+   "source": "overture",
+   "id": "6c7626a9-21a4-404a-9e37-0a55d355ce0b",
+   "name": "SEMI Europe",
+   "handle": "oiieurope.org",
+   "did": "did:plc:z2pkn6xjcvjz34cergk54us3",
+   "reason": "different organisation (SEMI Europe)"
+  },
+  {
+   "source": "overture",
+   "id": "20e20a01-ff3f-4c5c-ada2-893bf7ecee9b",
+   "name": "SG Nordring e.V.",
+   "handle": "rbb24.de",
+   "did": "did:plc:ngf6rc26wedybjnf7zfmoab3",
+   "reason": "sports club"
+  },
+  {
+   "source": "overture",
+   "id": "3375fbe3-c514-47a5-9aac-23f7320abe9b",
+   "name": "SB Tank",
+   "handle": "shell.com",
+   "did": "did:plc:nklfyfbfryanj3gnm7whtehj",
+   "reason": "not a Shell station"
+  },
+  {
+   "source": "overture",
+   "id": "db652933-f0bd-4a81-b6e3-8cdbe416c6df",
+   "name": "Gruner + Jahr",
+   "handle": "stern.de",
+   "did": "did:plc:fraeyszjcz6qjjksrkct7mpr",
+   "reason": "place is the publisher (Gruner + Jahr)"
+  },
+  {
+   "source": "overture",
+   "id": "321ffbce-1cb3-4da4-9287-c8f0c14997f3",
+   "name": "Mehr Berlin",
+   "handle": "tagesspiegel.de",
+   "did": "did:plc:ulwdhcuhr3ujocgxgrsi6kca",
+   "reason": "unrelated venue"
+  },
+  {
+   "source": "overture",
+   "id": "2b7fc397-bc09-4d51-a897-d3b5157aa811",
+   "name": "Shizzo",
+   "handle": "tagesspiegel.de",
+   "did": "did:plc:ulwdhcuhr3ujocgxgrsi6kca",
+   "reason": "club"
+  },
+  {
+   "source": "overture",
+   "id": "93d7b4b1-5b83-4415-8653-9753f98badad",
+   "name": "contrapress Satz und Druck GmbH & Co. Neue",
+   "handle": "taz.de",
+   "did": "did:plc:zorx72vm56gtgv4hzl66q4zm",
+   "reason": "printer"
+  },
+  {
+   "source": "overture",
+   "id": "feb91585-ec91-4b65-8c58-bc598f7ee3e1",
+   "name": "Seilbahn über die Mauer",
+   "handle": "topographie.de",
+   "did": "did:plc:744tidrnrzivfxhumru44zqf",
+   "reason": "cable car attraction"
+  },
+  {
+   "source": "overture",
+   "id": "581ee9a4-58c2-463d-bc7a-f7809335a25d",
+   "name": "Göttlich essen und trinken",
+   "handle": "weddingweiser.de",
+   "did": "did:plc:vb4bn3xqpg54lasrbiwzii4b",
+   "reason": "café"
+  },
+  {
+   "source": "overture",
+   "id": "3957ce9b-d180-45be-8d5f-a7b8d215f4c0",
+   "name": "Max-Josef-Metzger-Platz",
+   "handle": "weddingweiser.de",
+   "did": "did:plc:vb4bn3xqpg54lasrbiwzii4b",
+   "reason": "playground"
+  },
+  {
+   "source": "overture",
+   "id": "6c5b4ca0-476a-4168-8ab6-96647cebfe5f",
+   "name": "ADDISON Service und Vertriebs GmbH",
+   "handle": "wolterskluwer.com",
+   "did": "did:plc:3375glba3erdfofpph3xecqg",
+   "reason": "place is a subsidiary brand (ADDISON)"
+  },
+  {
+   "source": "foursquare",
+   "id": "52c955e302f741b39acac4fc",
+   "name": "Albert Schweizer Stiftung Pflegewohnheim Wohnen und Betreuen",
+   "handle": "albert-schweitzer-stiftung.de",
+   "did": "did:plc:e7g34rme5db36j4pzu73rihe",
+   "reason": "different foundation"
+  },
+  {
+   "source": "foursquare",
+   "id": "b239f642317e47dc2d0b9590",
+   "name": "Art Mûr Berlin",
+   "handle": "artforum.com",
+   "did": "did:plc:i3xfsu4onekr2uziapdqcru4",
+   "reason": "magazine site, not the gallery"
+  },
+  {
+   "source": "foursquare",
+   "id": "311513d694bf612a641d90a8",
+   "name": "Zentrum für Migration und Integration",
+   "handle": "bamf.de",
+   "did": "did:plc:m6azg2xkbd7fqprcjgkl7qks",
+   "reason": "not a BAMF office"
+  },
+  {
+   "source": "foursquare",
+   "id": "02bbbb86cb484127442e6e94",
+   "name": "ERC GmbH",
+   "handle": "erc.europa.eu",
+   "did": "did:plc:q6wkrpq6msjqrvf24wnaezhh",
+   "reason": "unrelated company"
+  },
+  {
+   "source": "foursquare",
+   "id": "4efc54eb93ad9a27989b9aa3",
+   "name": "Chopsticks - Die Vielfalt Asiens",
+   "handle": "heroku.com",
+   "did": "did:plc:esojkvgnsz4hfg6hzlxdjh2p",
+   "reason": "hosting company, not the restaurant"
+  },
+  {
+   "source": "foursquare",
+   "id": "4c5ed7fd6147be9a88cd9509",
+   "name": "Spielplatz Plantagenplatz",
+   "handle": "nextbike.de",
+   "did": "did:plc:7vl6v3kmx3cmceofge7zcqst",
+   "reason": "bike-share site, place is a playground"
+  },
+  {
+   "source": "foursquare",
+   "id": "0e543adebc334cfc9303b6ce",
+   "name": "FOTO-Express GmbH",
+   "handle": "o2online.de",
+   "did": "did:plc:fifz336br5ptgr7owyaxjygn",
+   "reason": "not an o2 shop"
+  },
+  {
+   "source": "foursquare",
+   "id": "4bfbac46d0382d7f64e6c90a",
+   "name": "Helle Mitte",
+   "handle": "o2online.de",
+   "did": "did:plc:fifz336br5ptgr7owyaxjygn",
+   "reason": "shopping mall"
+  },
+  {
+   "source": "foursquare",
+   "id": "38eeae30c16b403590cf6f6f",
+   "name": "Dickes Jürgen Rechtsanwalt",
+   "handle": "rechtsanwalt.com",
+   "did": "did:plc:oitywx7s56teh4y5g6xabhvg",
+   "reason": "directory portal, not the lawyer"
+  },
+  {
+   "source": "foursquare",
+   "id": "5c9a0929f193c0002c230029",
+   "name": "Best pork",
+   "handle": "something.com",
+   "did": "did:plc:63l7etwvabnsnobmmau5gqmp",
+   "reason": "unrelated site"
+  },
+  {
+   "source": "foursquare",
+   "id": "272996caaebb4eb9ec672c4d",
+   "name": "Becker Kerzenkunst und Wachsfiguren",
+   "handle": "weddingweiser.de",
+   "did": "did:plc:vb4bn3xqpg54lasrbiwzii4b",
+   "reason": "local blog, not the shop"
+  },
+  {
+   "source": "foursquare",
+   "id": "4ecde8db9adf25445418da8d",
+   "name": "Max-Josef-Metzger-Platz",
+   "handle": "weddingweiser.de",
+   "did": "did:plc:vb4bn3xqpg54lasrbiwzii4b",
+   "reason": "local blog, place is a park"
+  },
+  {
+   "source": "openstreetmap",
+   "id": "n6815725621",
+   "name": "Mehr Licht",
+   "handle": "bundestag.de",
+   "did": "did:plc:sds623mpvqx2gcexpnt4mn3u",
+   "reason": "artwork that links to the Bundestag"
+  },
+  {
+   "source": "openstreetmap",
+   "id": "n13573022801",
+   "name": "Hardwax, electronic music records",
+   "handle": "hardwax.com",
+   "did": "did:plc:fljd625exjklznyhrm63sgka",
+   "reason": "duplicate of the other Hard Wax entry"
+  },
+  {
+   "source": "openstreetmap",
+   "id": "n8379002242",
+   "name": "Hella Helmchen",
+   "handle": "helmchen.de",
+   "did": "did:plc:qn45p5qblsqsgtjzsjau22cm",
+   "reason": "different person"
+  },
+  {
+   "source": "openstreetmap",
+   "id": "n14076715427",
+   "name": "Gedenkstelle CSD-Attentat vom 25.7.2026",
+   "handle": "rbb24.de",
+   "did": "did:plc:ngf6rc26wedybjnf7zfmoab3",
+   "reason": "memorial that links to an article"
+  },
+  {
+   "source": "openstreetmap",
+   "id": "n2028095948",
+   "name": "Fluchttunnel",
+   "handle": "spiegel.de",
+   "did": "did:plc:6xofcnvvojjnmggqx43zghwh",
+   "reason": "sign that links to an article"
+  },
+  {
+   "source": "openstreetmap",
+   "id": "n3202875054",
+   "name": "World Food Programme Berlin",
+   "handle": "wfp.org",
+   "did": "did:plc:tx44repcjwmqnl4ivni5kqve",
+   "reason": "WFP Germany's account has the place's own host"
+  }
+ ]
+}

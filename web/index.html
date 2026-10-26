@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eurosky Places</title>
+<meta name="description" content="A place lookup for check-ins, photo locations and maps, from open data, run in Europe for anyone to use. No key; positions are never logged.">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/fonts/fonts.css">
+<style>
+/* Layout: one reading column on Eurosky's dark developer ground, a light header bar,
+   endpoint sections as on eurosky.tech/developers. */
+:root {
+  --cotton: #f7f6f2;
+  --ground: #1a1a1a;
+  --well: #111111;
+  --rule: #2e2e2e;
+  --text: #d9d7d2;
+  --muted: #9b9892;
+  --heading: #f7f6f2;
+  --green: #02bc60;
+  --green-text: #6ee7a8;
+  --amber: #f0c75e;
+  --link: #9ac2ff;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--ground); color: var(--text); font: 16px/1.6 var(--body); }
+a { color: var(--link); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.wrap { max-width: 960px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+
+.top { background: var(--cotton); color: #1a1a1a; border-bottom: 1px solid #e5e3dd; position: sticky; top: 0; z-index: 10; }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 14px; flex-wrap: wrap; }
+.brand { color: #1a1a1a; text-decoration: none; font: 600 20px/1 var(--body); letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
+.brand span { font: 500 14px/1 var(--mono); color: #5f5d58; }
+.top nav { display: flex; gap: 18px; flex-wrap: wrap; font: 500 14px/1 var(--body); }
+.top nav a { color: #3a3935; text-decoration: none; }
+.top nav a:hover { color: #000; text-decoration: underline; }
+
+.hero { padding-block: 72px 32px; display: grid; gap: 18px; }
+.eyebrow { font: 400 13px/1 var(--mono); color: var(--muted); letter-spacing: .04em; }
+h1 { margin: 0; color: var(--heading); font: 700 clamp(34px, 6vw, 52px)/1.08 var(--mono); letter-spacing: -.02em; text-wrap: balance; }
+.sub { margin: 0; color: var(--heading); font-size: 20px; }
+.intro { max-width: 640px; display: grid; gap: 14px; }
+.intro p { margin: 0; }
+.anchors { display: flex; flex-wrap: wrap; gap: 8px 22px; font: 400 14px/1 var(--mono); margin-top: 8px; }
+.anchors a { color: var(--muted); text-decoration: none; }
+.anchors a:hover { color: var(--heading); }
+
+.panel { border: 1px solid var(--rule); border-radius: 12px; background: var(--well); overflow: hidden; margin-block: 24px 64px; }
+.panel-bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--rule); font: 400 13px/1.2 var(--mono); color: var(--muted); }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 8px; vertical-align: 1px; }
+.try { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 16px; }
+.try input, .try select { font: 15px var(--mono); color: var(--heading); background: var(--ground); border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+#results { list-style: none; margin: 0; padding: 0 0 6px; min-height: 220px; }
+#results li { border-top: 1px solid var(--rule); }
+#results button { all: unset; box-sizing: border-box; width: 100%; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; padding: 10px 16px; }
+#results button:hover, #results button:focus-visible { background: #161616; }
+.r-name { color: var(--heading); font-weight: 500; overflow-wrap: anywhere; }
+.r-meta { color: var(--muted); font-size: 14px; }
+.r-dist { color: var(--muted); font: 400 13px/1.6 var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+.r-urn { grid-column: 1 / -1; font: 400 12px/1.4 var(--mono); color: #75726c; overflow-wrap: anywhere; }
+.r-record { grid-column: 1 / -1; }
+.hint { padding: 16px; color: var(--muted); font: 400 14px/1.5 var(--mono); }
+.panel-foot { padding: 12px 16px; border-top: 1px solid var(--rule); font: 400 12px/1.5 var(--mono); color: var(--muted); }
+
+section.ep { border-top: 1px solid var(--rule); padding-block: 56px; display: grid; gap: 18px; }
+h2 { margin: 0; color: var(--heading); font: 700 30px/1.15 var(--mono); letter-spacing: -.01em; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+h3 { margin: 12px 0 0; color: var(--heading); font: 600 15px/1.3 var(--mono); }
+.badge { font: 500 12px/1 var(--mono); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; color: var(--green-text); display: inline-flex; align-items: center; }
+.badge .dot { width: 6px; height: 6px; margin-right: 6px; vertical-align: 0; }
+.badge--draft { color: var(--amber); }
+.badge--draft .dot { background: var(--amber); }
+.badge--planned { color: var(--muted); }
+.badge--planned .dot { background: var(--muted); }
+section.ep p { margin: 0; max-width: 700px; }
+section.ep ul { margin: 0; padding-left: 20px; max-width: 700px; display: grid; gap: 6px; }
+
+.cmd { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; border: 1px solid var(--rule); border-radius: 10px; background: var(--well); padding: 12px 14px; font: 400 14px/1.4 var(--mono); max-width: 760px; }
+.cmd .prompt { color: var(--muted); }
+.cmd code { color: var(--heading); overflow-wrap: anywhere; }
+.copy { all: unset; cursor: pointer; font: 400 12px/1 var(--mono); color: var(--muted); padding: 4px 2px; }
+.copy:hover { color: var(--heading); }
+pre { margin: 0; border: 1px solid var(--rule); border-radius: 10px; background: var(--well); padding: 14px 16px; overflow-x: auto; font: 400 13px/1.55 var(--mono); color: #cfcdc7; max-width: 100%; }
+code { font-family: var(--mono); font-size: .92em; }
+p code, li code, td code { color: var(--heading); }
+.table { overflow-x: auto; max-width: 760px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { color: var(--muted); font: 500 12px/1.2 var(--mono); }
+
+.board { list-style: none; margin: 0; padding: 0; max-width: 760px; border: 1px solid var(--rule); border-radius: 10px; background: var(--well); }
+.board li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--rule); }
+.board li:first-child { border-top: 0; }
+.board .what { color: var(--heading); font: 500 14px/1.4 var(--mono); }
+.board .note { color: var(--muted); font-size: 14px; grid-column: 1; }
+
+footer { border-top: 1px solid var(--rule); padding-block: 40px 56px; color: var(--muted); font-size: 14px; }
+footer .wrap { display: grid; gap: 18px; }
+footer nav { display: flex; flex-wrap: wrap; gap: 10px 22px; }
+footer nav a { color: var(--text); }
+footer p { margin: 0; }
+
+@media (max-width: 640px) {
+  .hero { padding-top: 48px; }
+  .try { grid-template-columns: minmax(0, 1fr); }
+  section.ep { padding-block: 44px; }
+  h2 { font-size: 26px; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="https://eurosky.tech/">Eurosky <span>/ places</span></a>
+    <nav aria-label="Site">
+      <a href="#suggestions">API</a>
+      <a href="/demo/berlin/">Demo map</a>
+      <a href="https://github.com/eurosky-social/eurosky-places">Source</a>
+      <a href="https://eurosky.tech/developers/">All Eurosky infrastructure</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="hero">
+    <div class="eyebrow">// for developers</div>
+    <h1>Places you can build on</h1>
+    <p class="sub">A place lookup for check-ins, photo locations and maps, run in Europe, for anyone to use.</p>
+    <div class="intro">
+      <p>An app that lets people say where something happened needs a list of places: the café on the corner, the park, the district, the city. Most apps get that list from a few American companies, behind API keys and usage fees, and those companies see every position the app's users send them.</p>
+      <p>places.eurosky.tech answers the same questions from open data: Foursquare Open Source Places, Overture Maps and OpenStreetMap, about 112 million places worldwide, refreshed every month. There is no key, no account and no cookie, and no position anyone sends is logged. The code is open source.</p>
+    </div>
+    <nav class="anchors" aria-label="On this page">
+      <a href="#suggestions">#suggestions</a><a href="#search">#search</a><a href="#squares">#squares</a>
+      <a href="#getplace">#getplace</a><a href="#records">#records</a><a href="#data">#data</a>
+      <a href="#privacy">#privacy</a><a href="#fair-use">#fair-use</a><a href="#status">#status</a>
+    </nav>
+  </div>
+
+  <div class="panel" aria-label="Try the search">
+    <div class="panel-bar"><span><span class="dot"></span>POST places.eurosky.tech/v1/search</span><span id="took"></span></div>
+    <div class="try">
+      <input id="q" type="search" value="Brandenb" placeholder="Type a place, a street, a city" autocomplete="off" aria-label="Search text">
+      <select id="near" aria-label="Search near">
+        <option value="52.5200,13.4050">near Berlin</option>
+        <option value="48.8566,2.3522">near Paris</option>
+        <option value="38.7223,-9.1393">near Lisbon</option>
+        <option value="52.2297,21.0122">near Warsaw</option>
+        <option value="">anywhere</option>
+      </select>
+    </div>
+    <ul id="results" aria-live="polite"></ul>
+    <div class="panel-foot">Live: what you type goes to the API as you type, from the centre of the city you pick, never your own position. Nothing is logged. Pick a result to see its full record.</div>
+  </div>
+
+  <section class="ep" id="suggestions">
+    <h2>suggestions <span class="badge"><span class="dot"></span>live</span></h2>
+    <div class="cmd"><span class="prompt">$</span><code>POST https://places.eurosky.tech/v1/suggestions</code><button class="copy" type="button" data-copy="https://places.eurosky.tech/v1/suggestions">copy</button></div>
+    <p>What someone at a position could attach to a check-in or a photo: the places nearby, the street, and every area around them from the neighbourhood to the country. The app shows the list, the person picks, and the app publishes only the level they chose. The position goes in the body, never in the URL; the answer is not cached.</p>
+    <pre><code>curl -s https://places.eurosky.tech/v1/suggestions \
+  -H 'content-type: application/json' \
+  -d '{"lat": 52.4867, "lng": 13.4245, "limit": 2}'</code></pre>
+    <div class="table"><table>
+      <thead><tr><th>field</th><th>required</th><th>meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>lat</code>, <code>lng</code></td><td>yes</td><td>WGS84 degrees</td></tr>
+        <tr><td><code>radius</code></td><td>50–2000, default 500</td><td>metres to look for places</td></tr>
+        <tr><td><code>limit</code></td><td>1–100, default 30</td><td>places to return</td></tr>
+      </tbody>
+    </table></div>
+    <h3>// answer at Hermannplatz, Berlin (shortened)</h3>
+    <pre><code>{
+  "places": [
+    { "origin": "urn:atgeo:foursquare.com:place:4ae774f1f964a5207dab21e3",
+      "sameAs": ["urn:atgeo:openstreetmap.org:node:3167656606",
+                 "urn:atgeo:overturemaps.org:place:adc6176b-5d09-4dac-89a7-3649b18e525e"],
+      "name": "McDonald's", "category": "Fast Food Restaurant", "group": "food_drink",
+      "lat": 52.486762, "lng": 13.424558, "distance": 8,
+      "checkins": { "total": 0, "last30d": 0 } }
+  ],
+  "street": { "name": "Hermannplatz", "lat": 52.486935, "lng": 13.425165 },
+  "areas": [
+    { "origin": "urn:atgeo:overturemaps.org:division:ae5cf3f8-c895-438d-a515-3c4d280af49f",
+      "name": "Hermannplatz", "subtype": "microhood", "country": "DE", "lat": 52.487089, "lng": 13.424802 },
+    { "origin": "urn:atgeo:overturemaps.org:division:a3862542-3cfa-4599-83ba-8a956ea1dc51",
+      "name": "Neukölln", "subtype": "macrohood", "country": "DE", "lat": 52.477131, "lng": 13.442085 },
+    { "origin": "urn:atgeo:overturemaps.org:division:59f212f3-4e73-45d4-aca6-a8c5cb0c2bfd",
+      "name": "Berlin", "subtype": "region", "cityState": true, "country": "DE", "lat": 52.506935, "lng": 13.397483 },
+    { "origin": "urn:atgeo:overturemaps.org:division:567d1698-7209-4b94-b7b8-0bc71bde0104",
+      "name": "Deutschland", "subtype": "country", "country": "DE", "lat": 51.164204, "lng": 10.579249 }
+  ]
+}</code></pre>
+    <ul>
+      <li><code>places</code>: one entry per real place, ranked. <code>origin</code> is its ID in the most stable source, <code>sameAs</code> the same place in the other sources; <code>group</code> is a coarse kind (food and drink, sights, transit, …).</li>
+      <li><code>street</code>: the nearest street, with a point in its middle (not the person's position), or <code>null</code>.</li>
+      <li><code>areas</code>: the areas around the position, smallest first, each with a point inside it. Publish that point, not the person's, when they pick an area.</li>
+      <li><code>cityState: true</code> marks cities that Overture files as regions (Berlin, Hamburg, Vienna, Prague, Seoul, …): treat that area as the city and the city-level areas inside it as its districts.</li>
+    </ul>
+  </section>
+
+  <section class="ep" id="search">
+    <h2>search <span class="badge"><span class="dot"></span>live</span></h2>
+    <div class="cmd"><span class="prompt">$</span><code>POST https://places.eurosky.tech/v1/search</code><button class="copy" type="button" data-copy="https://places.eurosky.tech/v1/search">copy</button></div>
+    <p>Type-ahead for a place picker: what the person is typing and, if the app has it, where they are, both in the body. Notable places and every area match worldwide in all their names and languages ("Brandenburg Gate", "Berlino"); with a position, everything within two kilometres matches too. Send it after about 150 ms without typing, as the panel above does.</p>
+    <pre><code>curl -s https://places.eurosky.tech/v1/search \
+  -H 'content-type: application/json' \
+  -d '{"q": "Brandenb", "lat": 52.4867, "lng": 13.4245, "limit": 3}'</code></pre>
+    <div class="table"><table>
+      <thead><tr><th>field</th><th>required</th><th>meaning</th></tr></thead>
+      <tbody>
+        <tr><td><code>q</code></td><td>yes, 1–100 characters</td><td>fewer than two letters or digits give no results</td></tr>
+        <tr><td><code>lat</code>, <code>lng</code></td><td>no, together</td><td>without them only notable places and areas are searched</td></tr>
+        <tr><td><code>limit</code></td><td>1–30, default 10</td><td></td></tr>
+      </tbody>
+    </table></div>
+    <p>Each result has <code>kind</code> (<code>place</code> or <code>area</code>), <code>origin</code>, <code>sameAs</code>, <code>name</code>, how it matched (<code>start</code>, <code>word</code>, <code>other_name</code>, <code>approximate</code>), a category or area type, <code>lat</code>, <code>lng</code> and, with a position, <code>distance</code> in metres.</p>
+  </section>
+
+  <section class="ep" id="squares">
+    <h2>squares <span class="badge"><span class="dot"></span>live</span></h2>
+    <div class="cmd"><span class="prompt">$</span><code>GET https://places.eurosky.tech/v1/squares/{lat},{lng}</code><button class="copy" type="button" data-copy="https://places.eurosky.tech/v1/squares/52.48,13.42">copy</button></div>
+    <p>For apps that would rather not send a precise position at all: everything in one square of 0.01° × 0.01° (about 1.1 × 0.7 km in Berlin), which the app then filters and ranks on the device. Name the square by its south-west corner, rounding the position down to two decimals. Everyone in a square asks for the same URL, so answers are cacheable for an hour and can sit behind any CDN.</p>
+    <pre><code>curl -s https://places.eurosky.tech/v1/squares/52.48,13.42</code></pre>
+    <ul>
+      <li>More than two decimals, other spellings of a square and any query parameter except <code>page</code> are refused (<code>400 TooPrecise</code>), so a careless client cannot leak its position in the URL.</li>
+      <li><code>places</code> as in suggestions without <code>distance</code>, 500 per page, most important first; <code>next</code> links the following page.</li>
+      <li><code>areas</code> on the first page: every area overlapping the square, with <code>whole: true</code> when it covers all of it and otherwise its <code>outline</code> inside the square, so the app can tell which areas its position is in.</li>
+    </ul>
+  </section>
+
+  <section class="ep" id="getplace">
+    <h2>getPlace <span class="badge"><span class="dot"></span>live</span></h2>
+    <div class="cmd"><span class="prompt">$</span><code>GET https://places.eurosky.tech/xrpc/org.atgeo.getPlace?uri={urn}</code><button class="copy" type="button" data-copy="https://places.eurosky.tech/xrpc/org.atgeo.getPlace?uri=">copy</button></div>
+    <p>One place or area by its ID, answered as an <code>org.atgeo.place</code> record. This is the lookup of the <a href="https://github.com/schuyler/garganorn">ATGeo gazetteer</a>, the place-data effort of the AT Protocol community, so ATGeo clients can use this service as a gazetteer. IDs are ATGeo URNs, <code>urn:atgeo:{dataset}:{collection}:{id}</code>, the same <code>origin</code> and <code>sameAs</code> values every other endpoint returns.</p>
+    <pre><code>curl -s 'https://places.eurosky.tech/xrpc/org.atgeo.getPlace?uri=urn:atgeo:foursquare.com:place:691f0b57dbce331e6465f8d0'
+
+{ "uri": "https://places.eurosky.tech/xrpc/org.atgeo.getPlace?uri=urn%3Aatgeo%3Afoursquare.com%3Aplace%3A691f0b57dbce331e6465f8d0",
+  "record": {
+    "$type": "org.atgeo.place",
+    "origin": "urn:atgeo:foursquare.com:place:691f0b57dbce331e6465f8d0",
+    "name": "Brandenburger Tor",
+    "locations": [{ "$type": "community.lexicon.location.geo", "latitude": "52.516257", "longitude": "13.377633" }],
+    "attributes": { "category": "Historic and Protected Site" },
+    "relations": {
+      "within": [
+        { "uri": "urn:atgeo:overturemaps.org:division:567d1698-…", "name": "Deutschland", "type": "country" },
+        { "uri": "urn:atgeo:overturemaps.org:division:59f212f3-…", "name": "Berlin", "type": "region" },
+        { "uri": "urn:atgeo:overturemaps.org:division:1a6a8f16-…", "name": "Mitte", "type": "locality" }
+      ],
+      "sameAs": [{ "uri": "urn:atgeo:openstreetmap.org:way:518071791", "name": "Brandenburger Tor" }]
+    } } }</code></pre>
+    <p>Unknown IDs get <code>400 {"error": "PlaceNotFound"}</code>, as from garganorn. Answers are public and cacheable for an hour.</p>
+  </section>
+
+  <section class="ep" id="records">
+    <h2>records <span class="badge badge--draft"><span class="dot"></span>draft</span></h2>
+    <p>Once someone has picked a place, the app writes it next to the post. We propose one small record for check-ins and for where photos and videos were taken, <code>social.eurosky.place.pin</code>: the place's URN plus the part of the place readers need to show it, put it on a map and group posts by it, at the precision the author chose, never the device's position. It is a draft for the ATGeo working group, and its name can still change.</p>
+    <ul>
+      <li><a href="https://github.com/eurosky-social/eurosky-places/blob/main/docs/place-pin.md">The proposal</a>, with the <a href="https://github.com/eurosky-social/eurosky-places/blob/main/lexicons/social/eurosky/place/pin.json">lexicon</a> and examples</li>
+      <li><a href="https://discourse.atmosphere.community/t/check-ins-and-photo-locations-a-draft-place-pin-record-a-new-eurosky-place-service/1363">The discussion</a> on the atmosphere community forum</li>
+    </ul>
+    <h3>// demo: places that know their account</h3>
+    <p><a href="/demo/berlin/">Berlin storefronts</a> maps 505 places whose own website domain is also the handle of an account on the network, with each account's latest posts. Only whoever controls a domain can make it a handle, so each link is verified without the business doing anything. Claiming a place, so its owner can add opening hours, photos and a description, comes next.</p>
+  </section>
+
+  <section class="ep" id="data">
+    <h2>data</h2>
+    <p>Three open sources, loaded worldwide once a month, after Overture and Foursquare publish their releases. The same place in two sources is shown once, with the others in <code>sameAs</code>; records that only one weak source vouches for are kept out of suggestions.</p>
+    <div class="table"><table>
+      <thead><tr><th>source</th><th>licence</th><th>credit when you show the data</th></tr></thead>
+      <tbody>
+        <tr><td><a href="https://opensource.foursquare.com/os-places/">Foursquare Open Source Places</a></td><td>Apache 2.0</td><td>Foursquare</td></tr>
+        <tr><td><a href="https://overturemaps.org">Overture Maps</a></td><td>CDLA Permissive 2.0; ODbL for parts from OpenStreetMap</td><td>Overture Maps Foundation</td></tr>
+        <tr><td><a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a></td><td>ODbL 1.0</td><td>© OpenStreetMap contributors</td></tr>
+      </tbody>
+    </table></div>
+    <p>A month's load keeps the IDs each source uses; Foursquare and Overture IDs are the most stable, OpenStreetMap's can change when someone redraws a place, which is why every place carries <code>sameAs</code>.</p>
+  </section>
+
+  <section class="ep" id="privacy">
+    <h2>privacy</h2>
+    <ul>
+      <li>Positions travel in request bodies, never in URLs, and nothing that carries one is logged: the server keeps no access log, and its error log leaves request details out.</li>
+      <li>No key, no account and no cookie: requests carry nothing that says who sent them.</li>
+      <li>Apps that would rather not send a precise position use <a href="#squares">squares</a>, cacheable answers for a whole square kilometre.</li>
+      <li>The service runs on a dedicated server of ours in a Hetzner data centre in Germany. These pages load their fonts and scripts from it too; the demo map adds map tiles from <a href="https://openfreemap.org">OpenFreeMap</a> (no cookies), avatars from Bluesky's image server and posts from Eurosky's public API.</li>
+    </ul>
+  </section>
+
+  <section class="ep" id="fair-use">
+    <h2>fair use</h2>
+    <p>The service is free and needs no key. Help keep it that way: wait about 150 ms after the last keystroke before searching, cache squares, and ask for one area of the map at a time. If you expect more than a few requests a second, or want to build something on it, write to <a href="mailto:team@eurosky.tech">team@eurosky.tech</a> first. There is no service-level agreement yet, and limits per client may come.</p>
+    <p>The public endpoints answer requests from web pages on any domain (CORS).</p>
+  </section>
+
+  <section class="ep" id="status">
+    <h2>status</h2>
+    <p>What runs today and what is still being built.</p>
+    <ul class="board">
+      <li><span class="what">suggestions, search, squares</span><span class="badge"><span class="dot"></span>live</span></li>
+      <li><span class="what">org.atgeo.getPlace</span><span class="badge"><span class="dot"></span>live</span></li>
+      <li><span class="what">monthly worldwide refresh</span><span class="badge"><span class="dot"></span>live</span></li>
+      <li><span class="what">Berlin storefronts demo</span><span class="badge"><span class="dot"></span>live</span></li>
+      <li><span class="what">place-pin record</span><span class="badge badge--draft"><span class="dot"></span>draft</span></li>
+      <li><span class="what">check-in counts from published pins</span><span class="badge badge--planned"><span class="dot"></span>planned</span></li>
+      <li><span class="what">places claimed by their owners</span><span class="badge badge--planned"><span class="dot"></span>planned</span></li>
+      <li><span class="what">limits per client</span><span class="badge badge--planned"><span class="dot"></span>planned</span></li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <nav aria-label="Eurosky">
+      <a href="https://eurosky.tech/">eurosky.tech</a>
+      <a href="https://eurosky.tech/developers/">Developers</a>
+      <a href="https://github.com/eurosky-social/eurosky-places">Source code</a>
+      <a href="https://eurosky-social.hyperping.app/">Service status</a>
+      <a href="https://eurosky.tech/privacy">Website privacy</a>
+      <a href="mailto:team@eurosky.tech">team@eurosky.tech</a>
+    </nav>
+    <p>Eurosky is an initiative of Stichting Modal, The Hague, Netherlands.</p>
+  </div>
+</footer>
+
+<script>
+// The live search panel and copy buttons. Same origin on places.eurosky.tech; the public
+// endpoints allow other origins too, so the page also works from a local copy.
+const API = location.hostname === "places.eurosky.tech" ? "" : "https://places.eurosky.tech";
+const $ = (sel) => document.querySelector(sel);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const results = $("#results");
+let timer = null;
+let ticket = 0;
+
+// OpenStreetMap categories arrive as tags (railway=station): shown as words, "Railway station".
+function category(c) {
+  if (!c || !c.includes("=")) return c;
+  const [key, value] = c.split("=", 2);
+  const words = (value === "yes" ? key : `${key} ${value}`).replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function distance(m) {
+  if (m == null) return "";
+  return m < 1000 ? `${m} m` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
+}
+
+async function search() {
+  const q = $("#q").value.trim();
+  const mine = ++ticket;
+  if (q.length < 2) {
+    results.replaceChildren(el("li", "hint", "Type at least two letters."));
+    $("#took").textContent = "";
+    return;
+  }
+  const body = { q, limit: 8 };
+  if ($("#near").value) {
+    const [lat, lng] = $("#near").value.split(",").map(Number);
+    Object.assign(body, { lat, lng });
+  }
+  const started = performance.now();
+  try {
+    const res = await fetch(`${API}/v1/search`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (mine !== ticket) return;
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    $("#took").textContent = `${Math.round(performance.now() - started)} ms`;
+    render(data.results);
+  } catch {
+    if (mine !== ticket) return;
+    results.replaceChildren(el("li", "hint", "The search did not answer. Try again in a moment."));
+  }
+}
+
+function render(list) {
+  results.replaceChildren();
+  if (!list.length) { results.append(el("li", "hint", "Nothing found. Try another spelling or pick another city.")); return; }
+  for (const r of list) {
+    const li = el("li");
+    const b = el("button");
+    b.type = "button";
+    b.setAttribute("aria-expanded", "false");
+    const name = el("div");
+    name.append(el("div", "r-name", r.name));
+    const kind = r.kind === "area" ? [r.subtype, r.cityState ? "city" : null, r.country].filter(Boolean).join(" · ") : category(r.category) || r.group || "place";
+    name.append(el("div", "r-meta", r.matched ? `${kind} · matched “${r.matched}”` : kind));
+    b.append(name, el("div", "r-dist", distance(r.distance)), el("div", "r-urn", r.origin));
+    b.addEventListener("click", () => toggle(b, r.origin));
+    li.append(b);
+    results.append(li);
+  }
+}
+
+async function toggle(button, urn) {
+  const open = button.querySelector(".r-record");
+  if (open) { open.remove(); button.setAttribute("aria-expanded", "false"); return; }
+  const pre = el("pre", "r-record", "loading the record…");
+  button.append(pre);
+  button.setAttribute("aria-expanded", "true");
+  try {
+    const res = await fetch(`${API}/xrpc/org.atgeo.getPlace?uri=${encodeURIComponent(urn)}`);
+    const data = await res.json();
+    pre.textContent = JSON.stringify(data.record || data, null, 2);
+  } catch {
+    pre.textContent = "The record could not be loaded.";
+  }
+}
+
+$("#q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(search, 150); });
+$("#near").addEventListener("change", search);
+search();
+
+document.querySelectorAll(".copy").forEach((b) => b.addEventListener("click", async () => {
+  const text = b.dataset.copy;
+  try {
+    await navigator.clipboard.writeText(text);
+    b.textContent = "copied";
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(b.previousElementSibling);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    b.textContent = "selected";
+  }
+  setTimeout(() => { b.textContent = "copy"; }, 1500);
+}));
+</script>
+</body>
+</html>

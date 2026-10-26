@@ -278,8 +278,9 @@ src/
   places/                  category groups, ATGeo place IDs
 db/migrations/             long-lived schemas: meta (releases), live (check-in counts, overrides)
 test/                      node:test suites; load.test.ts runs a full load on local fixtures
-demo/berlin/               static demo map of places linked to their accounts, served at
-                           /demo/berlin/ (see its README)
+web/                       the public site, served as static files: the developer page at /,
+                           the demo map of places linked to their accounts at /demo/berlin/
+data/link-reviews/         links between places and accounts that were checked and rejected
 ```
 
 ## Licence
