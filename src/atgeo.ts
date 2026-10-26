@@ -3,8 +3,7 @@ import type { Pool } from "./db.ts";
 import type { CategoryGroup } from "./places/categories.ts";
 import { isCityState } from "./places/city-states.ts";
 import { charMask, normalizeName } from "./places/names.ts";
-import { samePlace } from "./places/rank.ts";
-import { SEARCH_SQL } from "./search.ts";
+import { MERGE_DISTANCE_M, samePlace } from "./places/rank.ts";
 
 // ATGeo's lookup of one place by its origin URN, org.atgeo.getPlace (the lexicon of the ATGeo
 // gazetteer, github.com/schuyler/garganorn), so ATGeo clients can use this service as a
@@ -25,6 +24,19 @@ const PLACE_SQL = `
   SELECT origin, dataset, name, category, category_group, confidence, wikidata,
          ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lng
   FROM ref.places WHERE origin = $1`;
+
+// Every record from another source within the merge distance, nearest first: the
+// candidates suggestions compare a place with. Not search's twins query, which keeps the
+// ten nearest: in a dense street the same place can lie behind more than ten others
+// (Cactus Bar in El Born, Barcelona: 19 m from its OpenStreetMap node, behind 13 closer
+// records), and then suggestions merged what getPlace did not link.
+const SAME_AS_CANDIDATES_SQL = `
+  SELECT origin, dataset, name, category, category_group, confidence, wikidata,
+         ST_Y(geog::geometry) AS lat, ST_X(geog::geometry) AS lng
+  FROM ref.places
+  WHERE dataset <> $1 AND ST_DWithin(geog, ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography, $4)
+  ORDER BY geog <-> ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography
+  LIMIT 1000`;
 
 const NAMES_SQL = "SELECT kind, name FROM ref.place_names WHERE origin = $1 ORDER BY kind, name";
 
@@ -139,7 +151,7 @@ async function within(pool: Pool, lat: number, lng: number, largerThan: number):
 
 // Records of the same place in other sources: the ones suggestions would merge it with.
 async function sameAs(pool: Pool, place: PlaceRow): Promise<Relation[]> {
-  const { rows } = await pool.query<PlaceRow>(SEARCH_SQL.twins, [[place.dataset], [place.lng], [place.lat]]);
+  const { rows } = await pool.query<PlaceRow>(SAME_AS_CANDIDATES_SQL, [place.dataset, place.lng, place.lat, MERGE_DISTANCE_M]);
   const keyed = (r: PlaceRow) => {
     const key = normalizeName(r.name);
     return { ...r, group: r.category_group, distance: 0, key, mask: charMask(key) };

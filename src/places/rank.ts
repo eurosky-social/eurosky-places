@@ -33,7 +33,7 @@ export interface Suggestion {
 // Records closer than this, with near-identical names and compatible kinds, are taken to
 // be the same place. Sources disagree on coordinates by tens of metres (McDonald's at
 // Hermannplatz: Foursquare 8 m away, Overture 37 m).
-const MERGE_DISTANCE_M = 75;
+export const MERGE_DISTANCE_M = 75;
 const MERGE_SIMILARITY = 0.9;
 // "Hugendubel" and "Hugendubel Berlin Hermannplatz im Karstadt": one name is the leading
 // words of the other. Riskier than near-identical names (a "Karstadt" next to a "Karstadt
