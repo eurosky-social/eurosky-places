@@ -144,3 +144,24 @@ test("without a configured public URL, links follow the request", async () => {
     await plain.close();
   }
 });
+
+// Last: it loads its own data. A bar in a crowded street, as Cactus Bar in El Born: its
+// Foursquare record 19 m from its OpenStreetMap node, with a dozen other records closer.
+// Suggestions merge the two; getPlace has to link them as well, from either side.
+test("the same place is linked even behind a dozen closer records", async () => {
+  const shops = Array.from({ length: 12 }, (_, i) => ({
+    dataset: i % 2 ? "overturemaps.org" : "foursquare.com", id: `shop-${i}`, name: `Shop number ${i}`,
+    category: "clothing store", group: "shopping" as const, north: i + 1, east: 0,
+  }));
+  await loadFixtures(pool, {
+    places: [
+      { dataset: "openstreetmap.org", id: "7", name: "Cactus Bar", category: "amenity=bar", group: "food_drink", north: 0, east: 0 },
+      { dataset: "foursquare.com", id: "cactus", name: "Cactus Bar", category: "Cocktail Bar", group: "food_drink", north: 17, east: 9 },
+      ...shops,
+    ],
+  });
+  const fromOsm = (await getPlace("urn:atgeo:openstreetmap.org:node:7")).json().record;
+  assert.deepEqual(fromOsm.relations.sameAs, [{ uri: "urn:atgeo:foursquare.com:place:cactus", name: "Cactus Bar" }]);
+  const fromFsq = (await getPlace("urn:atgeo:foursquare.com:place:cactus")).json().record;
+  assert.deepEqual(fromFsq.relations.sameAs, [{ uri: "urn:atgeo:openstreetmap.org:node:7", name: "Cactus Bar" }]);
+});

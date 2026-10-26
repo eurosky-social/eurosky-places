@@ -6,8 +6,9 @@ import Fastify, {
   type FastifyServerOptions,
 } from "fastify";
 import { registerAtgeoRoutes } from "./atgeo.ts";
-import type { Pool } from "./db.ts";
+import { isBusy, type Pool } from "./db.ts";
 import { registerInternalRoutes } from "./internal.ts";
+import { registerRateLimits, type RateLimits } from "./limits.ts";
 import { search, type SearchRequest } from "./search.ts";
 import { parseSquare, SquareError, squareContents } from "./squares.ts";
 import { suggest, type SuggestRequest } from "./suggest.ts";
@@ -22,6 +23,8 @@ export interface AppOptions {
   // This service's public URL, e.g. https://places.eurosky.tech, for links in answers;
   // without it they are built from the request.
   publicBaseUrl?: string;
+  // Requests per client address and minute for each public endpoint; none when unset.
+  rateLimits?: RateLimits;
 }
 
 // Square responses change only with a data load or live data (check-ins, overrides), so
@@ -97,6 +100,7 @@ export function buildApp({
   internalToken,
   squarePageSize = 500,
   publicBaseUrl,
+  rateLimits,
 }: AppOptions): FastifyInstance {
   // Per-request log lines stay off: requests carry users' positions, and nothing about
   // them should end up in logs.
@@ -106,6 +110,24 @@ export function buildApp({
     // Refuse unknown fields instead of dropping them, so a client sending `lon` instead
     // of `lng` gets an error rather than a quiet wrong answer.
     ajv: { customOptions: { removeAdditional: false } },
+    // The edge (Caddy on the same host) passes the client's address in X-Forwarded-For;
+    // only a proxy on this machine is believed, so a client cannot set its own.
+    trustProxy: "127.0.0.1,::1",
+  });
+
+  if (rateLimits) registerRateLimits(app, rateLimits);
+
+  // A query that ran out of time, or no free connection: busy, try again. Logged without
+  // anything from the request.
+  app.setErrorHandler(async (error, request, reply) => {
+    if (!isBusy(error)) return reply.send(error);
+    request.log.warn({ code: (error as { code?: string }).code ?? "pool" }, "busy");
+    if (request.url.startsWith("/v1/") || request.url.startsWith("/xrpc/")) reply.header("Access-Control-Allow-Origin", "*");
+    return reply
+      .code(503)
+      .header("Retry-After", "5")
+      .header("Cache-Control", "no-store")
+      .send({ error: "Busy", message: "the service is busy; try again in a few seconds" });
   });
 
   app.get("/health", async () => {

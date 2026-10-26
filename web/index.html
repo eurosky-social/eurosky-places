@@ -133,8 +133,8 @@ footer p { margin: 0; }
     <h1>Places you can build on</h1>
     <p class="sub">A place lookup for check-ins, photo locations and maps, run in Europe, for anyone to use.</p>
     <div class="intro">
-      <p>An app that lets people say where something happened needs a list of places: the café on the corner, the park, the district, the city. Most apps get that list from a few American companies, behind API keys and usage fees, and those companies see every position the app's users send them.</p>
-      <p>places.eurosky.tech answers the same questions from open data: Foursquare Open Source Places, Overture Maps and OpenStreetMap, about 112 million places worldwide, refreshed every month. There is no key, no account and no cookie, and no position anyone sends is logged. The code is open source.</p>
+      <p>Many apps need to show geographic locations. A few American companies are presently the main suppliers of this data, shared through API keys and charging usage fees. They also gain access to user data.</p>
+      <p>places.eurosky.tech offers open geographic data. We use Foursquare Open Source Places, Overture Maps and OpenStreetMap, with about 112 million places worldwide, refreshed monthly. There is no key, no account and no cookie, and no logging of people’s locations. The code is open source.</p>
     </div>
     <nav class="anchors" aria-label="On this page">
       <a href="#suggestions">#suggestions</a><a href="#search">#search</a><a href="#squares">#squares</a>
@@ -198,6 +198,7 @@ footer p { margin: 0; }
 }</code></pre>
     <ul>
       <li><code>places</code>: one entry per real place, ranked. <code>origin</code> is its ID in the most stable source, <code>sameAs</code> the same place in the other sources; <code>group</code> is a coarse kind (food and drink, sights, transit, …).</li>
+      <li><code>checkins</code>: how often people pinned the place in posts published on the network (<a href="#records">place pins</a>), in total and in the last 30 days; popular places rank higher.</li>
       <li><code>street</code>: the nearest street, with a point in its middle (not the person's position), or <code>null</code>.</li>
       <li><code>areas</code>: the areas around the position, smallest first, each with a point inside it. Publish that point, not the person's, when they pick an area.</li>
       <li><code>cityState: true</code> marks cities that Overture files as regions (Berlin, Hamburg, Vienna, Prague, Seoul, …): treat that area as the city and the city-level areas inside it as its districts.</li>
@@ -287,7 +288,7 @@ footer p { margin: 0; }
     <h2>privacy</h2>
     <ul>
       <li>Positions travel in request bodies, never in URLs, and nothing that carries one is logged: the server keeps no access log, and its error log leaves request details out.</li>
-      <li>No key, no account and no cookie: requests carry nothing that says who sent them.</li>
+      <li>No key, no account and no cookie: requests carry nothing that says who sent them. To apply the <a href="#fair-use">limits</a>, the server counts requests per address in memory for a minute, then forgets the address; it is never logged or stored.</li>
       <li>Apps that would rather not send a precise position use <a href="#squares">squares</a>, cacheable answers for a whole square kilometre.</li>
       <li>The service runs on a dedicated server of ours in a Hetzner data centre in Germany. These pages load their fonts and scripts from it too; the demo map adds map tiles from <a href="https://openfreemap.org">OpenFreeMap</a> (no cookies), avatars from Bluesky's image server and posts from Eurosky's public API.</li>
     </ul>
@@ -295,7 +296,15 @@ footer p { margin: 0; }
 
   <section class="ep" id="fair-use">
     <h2>fair use</h2>
-    <p>The service is free and needs no key. Help keep it that way: wait about 150 ms after the last keystroke before searching, cache squares, and ask for one area of the map at a time. If you expect more than a few requests a second, or want to build something on it, write to <a href="mailto:team@eurosky.tech">team@eurosky.tech</a> first. There is no service-level agreement yet, and limits per client may come.</p>
+    <p>The service is free and needs no key. Help keep it that way: wait about 150 ms after the last keystroke before searching, cache squares, and ask for one area of the map at a time. If you expect more than a few requests a second, or want to build something on it, write to <a href="mailto:team@eurosky.tech">team@eurosky.tech</a> first. There is no service-level agreement yet.</p>
+    <div class="table"><table>
+      <thead><tr><th>limit per client address</th><th>requests a minute</th></tr></thead>
+      <tbody>
+        <tr><td><code>suggestions</code></td><td>300</td></tr>
+        <tr><td><code>search</code>, <code>squares</code>, <code>getPlace</code></td><td>600 each</td></tr>
+      </tbody>
+    </table></div>
+    <p>Past a limit the answer is <code>429 {"error": "RateLimited"}</code> with <code>Retry-After</code>; when the service is too busy to answer in time, <code>503 {"error": "Busy"}</code> with <code>Retry-After: 5</code>. Both are safe to retry after that wait. The limits count each phone or browser on its own, so an app's users do not share one budget.</p>
     <p>The public endpoints answer requests from web pages on any domain (CORS).</p>
   </section>
 
@@ -308,9 +317,9 @@ footer p { margin: 0; }
       <li><span class="what">monthly worldwide refresh</span><span class="badge"><span class="dot"></span>live</span></li>
       <li><span class="what">Berlin storefronts demo</span><span class="badge"><span class="dot"></span>live</span></li>
       <li><span class="what">place-pin record</span><span class="badge badge--draft"><span class="dot"></span>draft</span></li>
-      <li><span class="what">check-in counts from published pins</span><span class="badge badge--planned"><span class="dot"></span>planned</span></li>
+      <li><span class="what">check-in counts from published pins</span><span class="badge"><span class="dot"></span>live</span></li>
       <li><span class="what">places claimed by their owners</span><span class="badge badge--planned"><span class="dot"></span>planned</span></li>
-      <li><span class="what">limits per client</span><span class="badge badge--planned"><span class="dot"></span>planned</span></li>
+      <li><span class="what">limits per client</span><span class="badge"><span class="dot"></span>live</span></li>
     </ul>
   </section>
 </main>

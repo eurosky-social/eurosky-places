@@ -10,18 +10,24 @@ Tracked in Linear: project **Eurosky Places** (EUR). Design and decisions:
 
 ## Status
 
+Live at <https://places.eurosky.tech> (developer page at `/`, Berlin demo at `/demo/berlin/`),
+on its own host with a monthly worldwide load ([eurosky-infra](https://github.com/eurosky-social/eurosky-infra),
+role `places`).
+
 | Part | Ticket | State |
 |---|---|---|
 | Repo, local Postgres/PostGIS, Berlin test data | EUR-477 | done |
-| Monthly worldwide load and swap | EUR-478 | load pipeline works for an area; worldwide run, prewarm and scheduling to do |
+| Monthly worldwide load and swap | EUR-478 | done (monthly timer on the host, prewarm after the swap) |
 | OpenStreetMap import (osm2pgsql) | EUR-479 | done (`--osm`) |
 | Endpoint A: suggestions for a position | EUR-480 | done (`POST /v1/suggestions`) |
 | Endpoint B: cacheable ~1 km squares | EUR-481 | done (`GET /v1/squares/{lat},{lng}`) |
 | Type-ahead | EUR-482 | done (`POST /v1/search`) |
 | Check-in counts, popularity, overrides | EUR-483 | done (`/internal/*`) |
-| Worldwide benchmark on a temporary server | EUR-484 | to do |
-| Host and monthly job (eurosky-infra) | EUR-485 | to do |
-| Shared formats with ATGeo | EUR-486 | `org.atgeo.getPlace`; check-in format drafted ([docs/place-pin.md](docs/place-pin.md)) |
+| Worldwide benchmark on a temporary server | EUR-484 | dropped: measured on the production host instead |
+| Host and monthly job (eurosky-infra) | EUR-485 | done |
+| Shared formats with ATGeo | EUR-486 | done: `org.atgeo.getPlace`; check-in record drafted ([docs/place-pin.md](docs/place-pin.md)), in discussion |
+| Check-in listener: published pins counted | — | done (`npm run listen`) |
+| Limits per client, query time limit | — | done |
 
 ## Local development
 
@@ -243,6 +249,35 @@ No credentials: the endpoints need no cookies or `Authorization`. A proxy in fro
 pass `OPTIONS` through for `/v1/*`. `org.atgeo.getPlace` is open to any origin too (a plain
 GET needs no preflight); `/internal/*` is not.
 
+## Limits
+
+Every public endpoint counts requests per client address and minute: 300 for suggestions,
+600 each for search, squares and `org.atgeo.getPlace` ([src/limits.ts](src/limits.ts)). Past
+that the answer is `429 {"error": "RateLimited"}` with `Retry-After`. The counts live in
+memory only, an address for at most a minute, and are never logged or stored. Behind the
+edge on the same host the address is the one Caddy forwards (`X-Forwarded-For` is believed
+only from loopback).
+
+A query that runs longer than `STATEMENT_TIMEOUT_MS` (default 3,000) is cancelled by
+Postgres, and a request that waits more than 5 s for a free database connection gives up;
+both answer `503 {"error": "Busy"}` with `Retry-After: 5`. The time limit applies to the API's
+connections only, never to the data load.
+
+## Check-in listener
+
+`npm run listen` follows Jetstream (`JETSTREAM_URL`, default Eurosky's
+`wss://jetstream1.eurosky.network/subscribe`) for place pins, `social.eurosky.place.pin`
+([docs/place-pin.md](docs/place-pin.md)), from any app, and writes them into the check-in
+counts directly ([src/listener.ts](src/listener.ts)):
+
+- a pin whose place has an ATGeo URN (`place.origin`) counts for that place, with the name
+  and point it was published with, which also covers places not in our data;
+- an edited pin counts where it points now, and no longer once it names no place; a deleted
+  pin stops counting;
+- it stores its position in the stream (`meta.listener_cursors`) after every write and
+  resumes there, so a restart or an outage shorter than Jetstream's replay window loses
+  nothing; what arrives twice is recorded once (check-ins are keyed by the record's URI).
+
 ## Internal routes: `/internal/*`
 
 For our own components, not apps. Enabled only when `INTERNAL_TOKEN` is set; every request
@@ -250,7 +285,7 @@ needs `Authorization: Bearer $INTERNAL_TOKEN`. Keep `/internal/` off the public 
 
 | Route | Used by | |
 |---|---|---|
-| `POST /internal/checkins` | the check-in listener | `{"events": [{"uri": "at://…", "place": "urn:atgeo:…", "createdAt": "…"}, {"uri": "at://…", "action": "delete"}]}`, up to 1,000 per call. Idempotent by `uri`; optional `name`, `lat`, `lng` describe the place as published, for places not in our data |
+| `POST /internal/checkins` | components that report check-ins over HTTP (the listener writes to the database directly) | `{"events": [{"uri": "at://…", "place": "urn:atgeo:…", "createdAt": "…"}, {"uri": "at://…", "action": "delete"}]}`, up to 1,000 per call. Idempotent by `uri`; optional `name`, `lat`, `lng` describe the place as published, for places not in our data |
 | `GET /internal/overrides` | admins | all overrides |
 | `PUT /internal/overrides/{urn}` | admins | `{"hidden": true}`, `{"name": "…"}`, `{"note": "…"}`; applies to the merged place that has this ID |
 | `DELETE /internal/overrides/{urn}` | admins | removes an override |
@@ -260,6 +295,7 @@ needs `Authorization: Bearer $INTERNAL_TOKEN`. Keep `/internal/` off the public 
 | Command | What it does |
 |---|---|
 | `npm start` | HTTP server |
+| `npm run listen` | Check-in listener: place pins from Jetstream into the check-in counts |
 | `npm run migrate` | Applies `db/migrations/*.sql` (schemas `meta` and `live`) |
 | `npm run load -- --bbox …` / `--worldwide` | Builds the next reference data and swaps it in |
 | `npm run bench` | Times endpoint A on random points against the loaded data; `-- --show lat,lng` prints one answer; `-- --search` times type-ahead with real names typed letter by letter |
