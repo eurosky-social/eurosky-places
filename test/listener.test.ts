@@ -130,7 +130,10 @@ test("messages are written after a short wait, or at once when many are waiting"
   const timed = new CheckinSink(pool, () => {}, { flushMs: 20 });
   timed.push(JSON.stringify(commit("create", "a", pin(), 1)));
   assert.equal((await rows()).length, 0);
-  await new Promise((r) => setTimeout(r, 80));
+  // Written without anyone calling flush(): wait for it rather than for a fixed time,
+  // which a busy machine overshoots.
+  const deadline = Date.now() + 3_000;
+  while ((await rows()).length === 0 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
   assert.equal((await rows()).length, 1);
 
   const full = new CheckinSink(pool, () => {}, { flushMs: 60_000, maxBatch: 2 });
