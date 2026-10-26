@@ -10,6 +10,7 @@
   },
   "scripts": {
     "start": "node src/main.ts",
+    "listen": "node src/listener.ts",
     "migrate": "node src/migrate.ts",
     "load": "node src/load/main.ts",
     "bench": "node scripts/bench.ts",

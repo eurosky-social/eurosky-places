@@ -10,6 +10,10 @@ export interface Config {
   internalToken: string | undefined;
   // The public URL answers link to, e.g. https://places.eurosky.tech; unset: from the request.
   publicBaseUrl: string | undefined;
+  // The Jetstream the check-in listener follows (its /subscribe endpoint).
+  jetstreamUrl: string;
+  // Longest a public request's query may run before Postgres cancels it (ms); 0 for none.
+  statementTimeoutMs: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -23,7 +27,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: Number(env.PORT ?? 3000),
     internalToken,
     publicBaseUrl: env.PUBLIC_BASE_URL ? env.PUBLIC_BASE_URL.replace(/\/+$/, "") : undefined,
+    jetstreamUrl: env.JETSTREAM_URL || "wss://jetstream1.eurosky.network/subscribe",
+    statementTimeoutMs: wholeNumber(env.STATEMENT_TIMEOUT_MS, 3000, "STATEMENT_TIMEOUT_MS"),
   };
+}
+
+function wholeNumber(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value === "") return fallback;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) throw new Error(`${name} must be a whole number`);
+  return n;
 }
 
 // DuckDB, the loader, defaults to 80% of the machine's memory. On the production host
