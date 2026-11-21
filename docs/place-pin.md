@@ -109,6 +109,25 @@ Berlin), so readers see the same data whichever app wrote the pin.
   the link.
 - When a post is deleted, the app deletes its pins; readers drop pins whose subject is gone.
 
+### What `media` assumes about the subject
+
+Only that its photos and videos are blobs in the author's repo, referenced by CID: how
+AT Protocol stores media in any record, not the layout of one app's lexicon. Where in the
+subject the blobs sit, how deeply nested and how many there are does not matter.
+
+- **Readers need nothing else.** A thumbnail is addressed by the author's DID and the CID
+  (see Reading pins). To check that a pin's media belong to its subject, walk the subject
+  record for blob references (`{"$type": "blob", "ref": {"$link": "<cid>"}, …}`) with
+  those CIDs, without knowing the subject's lexicon.
+- **One record per photo.** Apps that keep each photo or video in its own record (a
+  gallery record that lists photo records, say) pin that record: it is the `subject`, and
+  `media` stays out. `media` only names blobs inside its own subject.
+- **Media that is not a blob** (files on an app's own server, linked by URL) cannot be
+  named. Such apps pin the whole subject.
+- **Edits.** If a listed CID no longer appears in the subject (the photo was removed, or
+  re-uploaded under a new CID), readers ignore that entry; a pin none of whose media remain
+  no longer applies. Writers update or delete their pins when they change a subject's media.
+
 ## Reading pins
 
 A reader subscribed to the collection (e.g. via Jetstream) has what it needs in the record:
