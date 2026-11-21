@@ -27,7 +27,7 @@
               "type": "ref",
               "ref": "#media"
             },
-            "description": "The media in the subject this place applies to, by content ID, whatever the subject's structure: images or a video in a post's embed, or another app's media record. Absent: the place applies to the whole subject."
+            "description": "The media in the subject this place applies to, by content ID, whatever the subject's structure: images or a video in a post's embed, or another app's media record. Names only blobs inside the subject record; an entry whose CID no longer appears in it is ignored. Absent: the place applies to the whole subject."
           },
           "level": {
             "type": "string",
